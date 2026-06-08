@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 import requests
 
 _MODULE_DIR = Path(__file__).resolve().parent
-ROOT = _MODULE_DIR
+ROOT = _MODULE_DIR.parent / "button"
 JSON_PATH = ROOT / "纽扣库存清单.json"
 IMG_DIR = ROOT / ".button_images"
 CACHE_PATH = ROOT / ".button_visual_cache.json"

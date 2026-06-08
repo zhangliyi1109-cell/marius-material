@@ -33,12 +33,22 @@
     a.card:hover { transform: translateY(-2px); background: rgba(255,255,255,.18); }
     a.card strong { display: block; font-size: 1.1rem; margin-bottom: .35rem; }
     a.card span { font-size: .8rem; opacity: .85; }
+    .topbar {
+      position: fixed;
+      top: 1rem;
+      right: 1.25rem;
+      font-size: .8rem;
+      opacity: .75;
+    }
+    .topbar a { color: #fff; text-decoration: none; }
+    .topbar a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
+  <div class="topbar"><a href="/logout">退出登录</a></div>
   <div class="wrap">
     <h1>MARIUS 物料库存</h1>
-    <p>观远 BI 实时库存 · 视觉标签辅助选料<br>与 weather 项目独立部署</p>
+    <p>观远 BI 实时库存 · 视觉标签辅助选料</p>
     <div class="cards">
       <a class="card" href="/button/">
         <strong>纽扣</strong>
@@ -50,5 +60,10 @@
       </a>
     </div>
   </div>
+  <script>
+    fetch("/health").then((r) => r.json()).then((d) => {
+      if (!d.auth) document.querySelector(".topbar").style.display = "none";
+    }).catch(() => {});
+  </script>
 </body>
 </html>

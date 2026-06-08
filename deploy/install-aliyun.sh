@@ -34,7 +34,7 @@ python3 -m venv venv
 echo "==> 环境变量"
 if [ ! -f .env ]; then
   cp deploy/env.example .env
-  echo "请编辑 $APP_DIR/.env 填入 XIAOMI_API_KEY 等"
+  echo "请编辑 $APP_DIR/.env 填入 SECRET_KEY、MATERIAL_AUTH_PASSWORD、XIAOMI_API_KEY 等"
 fi
 
 echo "==> guancli（BI 拉数必需）"

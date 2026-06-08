@@ -22,8 +22,16 @@ from vision_tagger import analyze_fabric_image, resolve_api_key
 logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).parent
+PROJECT = ROOT.parent
 IMG_DIR = ROOT / ".fabric_images"
 CACHE_PATH = ROOT / "visual_cache.json"
+
+
+def _extract_script(name: str) -> Path:
+    for path in (PROJECT / "shared" / name, ROOT / name):
+        if path.is_file():
+            return path
+    raise FileNotFoundError(name)
 
 
 def vision_provider(cfg: dict) -> str:
@@ -42,7 +50,7 @@ def save_agent_cache(cache: dict) -> None:
 
 def _load_extract_mod():
     spec = importlib.util.spec_from_file_location(
-        "fabric_extract", ROOT / "extract_fabric_visual_tags.py"
+        "fabric_extract", _extract_script("extract_fabric_visual_tags.py")
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

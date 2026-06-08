@@ -1,6 +1,6 @@
 # MARIUS 物料库存看板
 
-独立于 [weather](https://github.com/zhangliyi1109-cell/weather) 项目，提供观远 BI 实时物料库存与视觉标签筛选。
+观远 BI 实时物料库存与视觉标签筛选。
 
 ## 路由
 
@@ -9,6 +9,23 @@
 | `/` | 物料首页（入口） |
 | `/button/` | 纽扣库存看板 |
 | `/fabric/` | 面料库存看板（默认 ≥300m） |
+
+## 登录
+
+设置环境变量后启用登录页（`/login`），未设置 `MATERIAL_AUTH_PASSWORD` 时本地开发可直接访问：
+
+| 变量 | 说明 |
+|------|------|
+| `MATERIAL_AUTH_PASSWORD` | 登录密码（必填才启用） |
+| `MATERIAL_AUTH_USER` | 用户名，默认 `admin` |
+| `SECRET_KEY` | Flask 会话密钥，启用登录时必填 |
+
+```bash
+export SECRET_KEY="$(openssl rand -hex 32)"
+export MATERIAL_AUTH_USER=admin
+export MATERIAL_AUTH_PASSWORD=你的密码
+python3 material_app.py
+```
 
 ## 本地运行
 

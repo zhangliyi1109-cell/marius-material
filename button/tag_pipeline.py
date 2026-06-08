@@ -21,12 +21,20 @@ from vision_tagger import analyze_image, resolve_api_key
 logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).parent
+PROJECT = ROOT.parent
 IMG_DIR = ROOT / ".button_images"
+
+
+def _extract_script(name: str) -> Path:
+    for path in (PROJECT / "shared" / name, ROOT / name):
+        if path.is_file():
+            return path
+    raise FileNotFoundError(name)
 
 
 def _load_extract_mod():
     spec = importlib.util.spec_from_file_location(
-        "extract", ROOT / "extract_button_visual_tags.py"
+        "extract", _extract_script("extract_button_visual_tags.py")
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

@@ -13,10 +13,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-import requests
-
 from tag_store import TagStore
 from vision_tagger import analyze_image, resolve_api_key
+
+try:
+    from image_fetch import download_image
+except ImportError:
+    from shared.image_fetch import download_image
 
 logger = logging.getLogger(__name__)
 
@@ -245,16 +248,26 @@ class TagPipeline:
         key = self._url_key(url)
         ext = Path(urlparse(url).path).suffix or ".jpg"
         path = IMG_DIR / f"{key}{ext}"
-        if path.exists():
+        if path.exists() and path.stat().st_size > 128:
             return path
         try:
-            r = requests.get(url, timeout=30)
-            r.raise_for_status()
-            path.write_bytes(r.content)
+            download_image(url, path)
             return path
         except Exception as exc:
             logger.warning("download %s: %s", url, exc)
             return None
+
+    def _analyze_with_retry(self, path: Path, attempts: int = 3) -> dict:
+        last_err: Exception | None = None
+        for i in range(attempts):
+            try:
+                return analyze_image(path, base_url=self.base_url, model=self.model)
+            except Exception as exc:
+                last_err = exc
+                logger.warning("vision attempt %s/%s failed: %s", i + 1, attempts, exc)
+                if i + 1 < attempts:
+                    time.sleep(min(2 * (i + 1), 8))
+        raise RuntimeError(str(last_err) if last_err else "视觉打标失败")
 
     def _process_job(self, job: TagJob) -> None:
         detail = job.detail_code
@@ -279,14 +292,14 @@ class TagPipeline:
         try:
             vision = self.store.get_vision(url)
             if not vision:
+                if not resolve_api_key():
+                    raise RuntimeError(
+                        "未配置 XIAOMI_API_KEY，请在 /root/marius-material/.env 中设置后重启服务"
+                    )
                 path = self._download(url)
                 if not path:
                     raise RuntimeError("主图下载失败")
-                vision = analyze_image(
-                    path,
-                    base_url=self.base_url,
-                    model=self.model,
-                )
+                vision = self._analyze_with_retry(path)
                 self.store.save_vision(url, vision, status="done")
             merged = mod.merge_tags(mod.parse_text_tags(item), vision)
             self.store.save_sku_tags(

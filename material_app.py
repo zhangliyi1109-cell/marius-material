@@ -81,6 +81,7 @@ def health():
         "services": ["button", "fabric"],
         "auth": auth_enabled(),
         "auth_user": __import__("auth").username() if auth_enabled() else None,
+        "xiaomi_api": bool(__import__("vision_tagger").resolve_api_key()),
     }
 
 

@@ -16,14 +16,18 @@ write_env() {
     exit 1
   fi
   SECRET="$(openssl rand -hex 32)"
+  read -r -p "小米视觉 API Key（XIAOMI_API_KEY，可回车跳过）: " XIAOMI_KEY
   cat > .env <<EOF
 PORT=8080
 SECRET_KEY=${SECRET}
 MATERIAL_AUTH_USER=${AUTH_USER}
 MATERIAL_AUTH_PASSWORD=${AUTH_PASS}
-XIAOMI_API_KEY=
+XIAOMI_API_KEY=${XIAOMI_KEY}
 EOF
   echo "已写入 $APP_DIR/.env"
+  if [ -z "$XIAOMI_KEY" ]; then
+    echo "WARN: 未设置 XIAOMI_API_KEY，视觉打标会失败"
+  fi
 }
 
 if [ "$FORCE" = 1 ] || [ ! -f .env ] || ! grep -q '^MATERIAL_AUTH_PASSWORD=.\+' .env 2>/dev/null; then

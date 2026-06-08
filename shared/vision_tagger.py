@@ -53,7 +53,8 @@ def resolve_api_key() -> str | None:
     if oc.exists():
         try:
             data = json.loads(oc.read_text(encoding="utf-8"))
-            key = (data.get("env") or {}).get("XIAOMI_API_KEY", "")
+            env = data.get("env") or {}
+            key = env.get("XIAOMI_API_KEY") or (env.get("vars") or {}).get("XIAOMI_API_KEY")
             if key:
                 return str(key).strip()
         except (json.JSONDecodeError, OSError):

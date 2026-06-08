@@ -12,6 +12,10 @@ for p in (ROOT, ROOT / "shared", ROOT / "button", ROOT / "fabric"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+from load_env import load_project_env
+
+load_project_env(ROOT)
+
 from flask import Flask, jsonify, redirect, request, send_from_directory, session
 
 from auth import auth_enabled, is_logged_in, public_paths, secret_key, verify_credentials
@@ -72,7 +76,12 @@ def home():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "services": ["button", "fabric"], "auth": auth_enabled()}
+    return {
+        "ok": True,
+        "services": ["button", "fabric"],
+        "auth": auth_enabled(),
+        "auth_user": __import__("auth").username() if auth_enabled() else None,
+    }
 
 
 app.register_blueprint(button_bp, url_prefix="/button")
@@ -91,4 +100,6 @@ if __name__ == "__main__":
     print(f"  面料 → /fabric")
     if auth_enabled():
         print("  登录已启用 → /login")
+    else:
+        print("  登录未启用（请在 .env 设置 MATERIAL_AUTH_PASSWORD）")
     app.run(host=args.host, port=args.port, debug=False)

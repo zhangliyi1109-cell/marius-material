@@ -4,6 +4,13 @@ cd "$(dirname "$0")"
 export PORT="${PORT:-8080}"
 export HOST="${HOST:-0.0.0.0}"
 
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
 PYTHON="${PYTHON:-python3}"
 echo "安装依赖…"
 "$PYTHON" -m pip install -r requirements.txt

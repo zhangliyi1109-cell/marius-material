@@ -6,11 +6,11 @@ After=network.target
 Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/opt/material-inventory
-EnvironmentFile=/opt/material-inventory/.env
+WorkingDirectory=/root/marius-material
+EnvironmentFile=-/root/marius-material/.env
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Environment=HOME=/var/www
-ExecStart=/opt/material-inventory/venv/bin/gunicorn -w 2 -b 127.0.0.1:8080 material_app:app
+ExecStart=/root/marius-material/venv/bin/gunicorn -w 2 -b 127.0.0.1:8080 material_app:app
 Restart=always
 RestartSec=5
 

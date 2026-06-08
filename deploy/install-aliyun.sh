@@ -2,7 +2,7 @@
 # 在阿里云 ECS 上首次部署后执行（需 root 或 sudo）
 set -e
 
-APP_DIR=/opt/material-inventory
+APP_DIR=${APP_DIR:-/root/marius-material}
 REPO=${REPO:-git@github.com:zhangliyi1109-cell/marius-material.git}
 
 echo "==> 安装系统依赖"

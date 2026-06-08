@@ -189,6 +189,38 @@ class TagPipeline:
             self._seen.clear()
         return self.enqueue_rows(rows)
 
+    def retry_details(self, rows: list[dict], detail_codes: list[str]) -> int:
+        codes = {c.strip() for c in detail_codes if c and c.strip()}
+        if not codes:
+            return 0
+        row_map = {(r.get("物料明细编码") or "").strip(): r for r in rows}
+        added = 0
+        mod = extract_mod()
+        for detail in codes:
+            row = row_map.get(detail)
+            if not row:
+                continue
+            meta = self.store.get_tag_meta(detail)
+            if meta["status"] not in ("failed", "pending"):
+                continue
+            url = (row.get("主图") or "").strip()
+            if not url:
+                continue
+            item = self._item_from_row(row)
+            with self._lock:
+                self._seen.discard(detail)
+            self.store.save_sku_tags(
+                detail,
+                mod.parse_text_tags(item),
+                image_url=url,
+                status="pending",
+                has_vision=False,
+                error=None,
+            )
+            self._queue.put(TagJob(detail_code=detail, row=dict(row)))
+            added += 1
+        return added
+
     def _download(self, url: str) -> Path | None:
         import hashlib
 

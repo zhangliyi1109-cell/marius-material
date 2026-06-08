@@ -170,6 +170,30 @@
     .tag-badge.failed { background: rgba(185, 28, 28, .9); }
     .tag-badge.text_only { background: rgba(107, 107, 107, .85); }
     .card.tag-pending .card-desc { color: #888; font-style: italic; }
+    .card.tag-failed .card-desc { color: #b91c1c; }
+    .tag-error-box {
+      font-size: .72rem;
+      color: #b91c1c;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: .45rem .55rem;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .btn-retry {
+      margin-top: .35rem;
+      font-size: .72rem;
+      font-weight: 600;
+      padding: .35rem .65rem;
+      border: 1px solid #b91c1c;
+      border-radius: 6px;
+      background: #fff;
+      color: #b91c1c;
+      cursor: pointer;
+    }
+    .btn-retry:hover { background: #fef2f2; }
+    .btn-retry:disabled { opacity: .55; cursor: wait; }
     .card-body { padding: .9rem 1rem 1rem; flex: 1; display: flex; flex-direction: column; gap: .45rem; }
     .card-title {
       font-size: .9rem;
@@ -348,7 +372,34 @@
       renderChips(document.getElementById('styleChips'), data.styles || [], 'style', '全部');
     }
 
-    function tagBadgeHtml(status) {
+    function esc(s) {
+      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    }
+
+    function retryCodesFor(item) {
+      if (item.retry_detail_codes && item.retry_detail_codes.length) return item.retry_detail_codes;
+      if (item.tag_status === 'failed' && item.物料明细编码) return [item.物料明细编码];
+      return [];
+    }
+
+    async function retryTag(codes, btn) {
+      if (!codes.length) return;
+      if (btn) { btn.disabled = true; btn.textContent = '重新打标中…'; }
+      try {
+        await fetch(BASE + '/api/tag-jobs/retry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ detail_codes: codes }),
+        });
+        startTagPolling();
+        await loadItems();
+      } catch (e) {
+        alert('重新打标失败: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = '重新打标'; }
+      }
+    }
+
+    function tagBadgeHtml(status, error) {
       const map = {
         pending: ['分析中…', 'tag-badge'],
         running: ['打标中', 'tag-badge running'],
@@ -357,7 +408,8 @@
       };
       const m = map[status];
       if (!m) return '';
-      return `<span class="${m[1]}">${m[0]}</span>`;
+      const title = status === 'failed' && error ? ` title="${esc(error)}"` : '';
+      return `<span class="${m[1]}"${title}>${m[0]}</span>`;
     }
 
     function updateTagStatusLine(jobs) {
@@ -384,7 +436,8 @@
           ((jobs.db_counts && jobs.db_counts.pending) || 0);
         if (active > 0) {
           await loadItems();
-        } else if (state.tagPoll) {
+        } else if (state.tagPoll && !state.items.some(i =>
+          i.tag_status === 'pending' || i.tag_status === 'running' || i.tag_status === 'failed')) {
           clearInterval(state.tagPoll);
           state.tagPoll = null;
         }
@@ -427,22 +480,34 @@
         ? `${item.纽扣类型 || ''} · ${item.颜色描述 || item.颜色 || ''} · 多尺码`
         : `${item.纽扣类型 || ''} · ${item.颜色规格 || item.尺寸 || ''}`;
       const tagSt = item.tag_status || 'done';
-      const cardCls = tagSt === 'pending' || tagSt === 'running' ? 'card tag-pending' : 'card';
-      const desc = (tagSt === 'pending' || tagSt === 'running')
-        ? '（视觉分析进行中，稍后自动更新…）'
-        : (tags.视觉描述 || '（无视觉描述）');
+      const cardCls = tagSt === 'pending' || tagSt === 'running'
+        ? 'card tag-pending'
+        : (tagSt === 'failed' ? 'card tag-failed' : 'card');
+      const retryCodes = retryCodesFor(item);
+      let desc = '';
+      if (tagSt === 'pending' || tagSt === 'running') {
+        desc = '（视觉分析进行中，稍后自动更新…）';
+      } else if (tagSt === 'failed') {
+        const errMsg = item.tag_error || '打标失败，原因未知';
+        desc = `<div class="tag-error-box">失败原因：${esc(errMsg)}</div>`;
+        if (retryCodes.length) {
+          desc += `<button type="button" class="btn-retry" data-codes='${JSON.stringify(retryCodes)}'>重新打标</button>`;
+        }
+      } else {
+        desc = tags.视觉描述 || '（无视觉描述）';
+      }
       return `
         <article class="${cardCls}">
           <div class="card-img-wrap">
             ${img}
-            ${tagBadgeHtml(tagSt)}
+            ${tagBadgeHtml(tagSt, item.tag_error)}
             <span class="stock-badge ${stockClass(stock)}" title="${stockTitle}">可配 ${badge}</span>
           </div>
           <div class="card-body">
             <div class="card-title">${item.物料名称 || '—'}</div>
             <div class="card-meta">${metaLine}</div>
             <div class="card-meta">${item.物料编码 || ''}</div>
-            <p class="card-desc">${desc}</p>
+            <div class="card-desc">${desc}</div>
             <div class="tag-list">${tagHtml}</div>
             ${renderVariants(item)}
           </div>
@@ -473,14 +538,22 @@
         }
         content.className = 'grid';
         content.innerHTML = state.items.map(renderCard).join('');
-        const pendingCards = state.items.filter(i =>
-          i.tag_status === 'pending' || i.tag_status === 'running').length;
-        if (pendingCards) startTagPolling();
+        const activeCards = state.items.filter(i =>
+          i.tag_status === 'pending' || i.tag_status === 'running' || i.tag_status === 'failed').length;
+        if (activeCards) startTagPolling();
       } catch (e) {
         content.className = 'error';
         content.textContent = '加载失败: ' + e.message;
       }
     }
+
+    document.getElementById('content').addEventListener('click', (e) => {
+      const btn = e.target.closest('.btn-retry');
+      if (!btn) return;
+      let codes = [];
+      try { codes = JSON.parse(btn.dataset.codes || '[]'); } catch (_) {}
+      retryTag(codes, btn);
+    });
 
     let searchTimer;
     document.getElementById('searchInput').addEventListener('input', () => {

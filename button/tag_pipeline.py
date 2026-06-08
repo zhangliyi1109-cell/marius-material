@@ -176,6 +176,48 @@ class TagPipeline:
             self._seen.clear()
         return self.enqueue_rows(rows)
 
+    def retry_details(self, rows: list[dict], detail_codes: list[str]) -> int:
+        """将失败的 SKU 重新入队打标。"""
+        codes = {c.strip() for c in detail_codes if c and c.strip()}
+        if not codes:
+            return 0
+        row_map = {(r.get("物料明细编码") or "").strip(): r for r in rows}
+        added = 0
+        mod = extract_mod()
+        for detail in codes:
+            row = row_map.get(detail)
+            if not row:
+                continue
+            meta = self.store.get_tag_meta(detail)
+            if meta["status"] not in ("failed", "pending"):
+                continue
+            url = (row.get("主图") or "").strip()
+            if not url:
+                continue
+            item = {
+                "物料明细编码": detail,
+                "物料名称": row.get("物料名称", ""),
+                "物料编码": row.get("物料编码", ""),
+                "颜色规格": row.get("颜色规格", ""),
+                "纽扣类型": row.get("纽扣类型", ""),
+                "主图": url,
+            }
+            with self._lock:
+                self._seen.discard(detail)
+            self.store.save_sku_tags(
+                detail,
+                mod.parse_text_tags(item),
+                image_url=url,
+                status="pending",
+                has_vision=False,
+                error=None,
+            )
+            self._queue.put(TagJob(detail_code=detail, row=dict(row)))
+            with self._lock:
+                self._stats.pending += 1
+            added += 1
+        return added
+
     def _apply_no_image(self, detail: str, item: dict, tags: dict) -> None:
         mod = extract_mod()
         merged = mod.merge_tags(tags, None)

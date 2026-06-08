@@ -224,6 +224,8 @@ class TagStore:
         meta = self.get_tag_meta(detail_code)
         if meta["status"] == "text_only":
             return False
+        if meta["status"] == "failed":
+            return bool(image_url)
         if meta["status"] == "done" and meta.get("has_vision"):
             return False
         if not image_url:

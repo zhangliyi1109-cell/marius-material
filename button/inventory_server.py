@@ -87,6 +87,26 @@ def tag_status_for_row(cfg: dict, detail: str) -> str:
     return meta.get("status") or "pending"
 
 
+def tag_fields_for_row(cfg: dict, detail: str) -> dict[str, str]:
+    if not detail:
+        return {"tag_status": "pending", "tag_error": ""}
+    meta = get_store(cfg).get_tag_meta(detail)
+    return {
+        "tag_status": meta.get("status") or "pending",
+        "tag_error": (meta.get("error") or "").strip(),
+    }
+
+
+def tag_fail_info(items: list[dict]) -> tuple[str, list[str]]:
+    failed = [x for x in items if x.get("tag_status") == "failed"]
+    if not failed:
+        return "", []
+    errors = [(x.get("tag_error") or "").strip() for x in failed if (x.get("tag_error") or "").strip()]
+    err = errors[0] if errors else "打标失败，原因未知"
+    codes = [(x.get("物料明细编码") or "").strip() for x in failed]
+    return err, [c for c in codes if c]
+
+
 def infer_button_type(row: dict) -> str:
     kind = row.get("物料种类") or ""
     name = " ".join(
@@ -180,7 +200,7 @@ def normalize_row(row: dict, visual_index: dict[str, dict], cfg: dict) -> dict:
         "物料类型": row.get("物料类型", ""),
         "last_update_time": row.get("last_update_time", ""),
         "视觉标签": visual,
-        "tag_status": tag_status_for_row(cfg, detail),
+        **tag_fields_for_row(cfg, detail),
     }
 
 
@@ -249,10 +269,14 @@ def group_by_product(rows: list[dict]) -> list[dict]:
                 "尺寸": x["尺寸"],
                 "可配库存": x["可配库存"],
                 "tag_status": x.get("tag_status"),
+                "tag_error": x.get("tag_error"),
             }
             for x in items
         ]
         rep["tag_status"] = _aggregate_tag_status(items)
+        err, codes = tag_fail_info(items)
+        rep["tag_error"] = err
+        rep["retry_detail_codes"] = codes
         merged.append(rep)
     merged.sort(key=lambda x: x["可配库存合计"], reverse=True)
     return merged
@@ -334,6 +358,22 @@ def api_tag_jobs_run():
     rows, _meta = get_merged_rows(force=True)
     n = get_pipeline(cfg).enqueue_all_pending(rows)
     return jsonify({"enqueued": n, **get_pipeline(cfg).status()})
+
+
+@bp.post("/api/tag-jobs/retry")
+def api_tag_jobs_retry():
+    cfg = load_config()
+    bootstrap_tagging(cfg)
+    body = request.get_json(silent=True) or {}
+    codes = body.get("detail_codes") or []
+    if body.get("detail_code"):
+        codes = [body["detail_code"], *codes]
+    codes = [str(c).strip() for c in codes if str(c).strip()]
+    if not codes:
+        return jsonify({"error": "缺少 detail_code 或 detail_codes"}), 400
+    rows, _meta = get_merged_rows(force=True)
+    n = get_pipeline(cfg).retry_details(rows, codes)
+    return jsonify({"retried": n, **get_pipeline(cfg).status()})
 
 
 @bp.get("/api/meta")

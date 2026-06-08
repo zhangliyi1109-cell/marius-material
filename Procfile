@@ -1,0 +1,1 @@
+web: python3 material_app.py --host 0.0.0.0 --port ${PORT:-8080}

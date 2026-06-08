@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.env
+*.db
+.button_images/
+.fabric_images/
+.DS_Store
+.fabric_visual_cache_part*.json
+.fabric_todo*.json
+.button_visual_cache_part*.json
+bi-auth*.json
+*.log

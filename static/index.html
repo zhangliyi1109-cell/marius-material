@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MARIUS 物料库存</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, "PingFang SC", "Noto Sans SC", sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(145deg, #1a1a1a 0%, #3d4f5f 50%, #6b4f3a 100%);
+      color: #fff;
+      padding: 2rem;
+    }
+    .wrap { max-width: 520px; text-align: center; }
+    h1 { font-size: 1.75rem; margin-bottom: .5rem; letter-spacing: .04em; }
+    p { opacity: .8; margin-bottom: 2rem; font-size: .95rem; line-height: 1.6; }
+    .cards { display: grid; gap: 1rem; }
+    a.card {
+      display: block;
+      padding: 1.25rem 1.5rem;
+      border-radius: 14px;
+      background: rgba(255,255,255,.12);
+      border: 1px solid rgba(255,255,255,.2);
+      color: #fff;
+      text-decoration: none;
+      transition: transform .15s, background .15s;
+    }
+    a.card:hover { transform: translateY(-2px); background: rgba(255,255,255,.18); }
+    a.card strong { display: block; font-size: 1.1rem; margin-bottom: .35rem; }
+    a.card span { font-size: .8rem; opacity: .85; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>MARIUS 物料库存</h1>
+    <p>观远 BI 实时库存 · 视觉标签辅助选料<br>与 weather 项目独立部署</p>
+    <div class="cards">
+      <a class="card" href="/button/">
+        <strong>纽扣</strong>
+        <span>实时库存 · 视觉筛选 · /button</span>
+      </a>
+      <a class="card" href="/fabric/">
+        <strong>面料</strong>
+        <span>≥300m 可配 · 自动打标 · /fabric</span>
+      </a>
+    </div>
+  </div>
+</body>
+</html>

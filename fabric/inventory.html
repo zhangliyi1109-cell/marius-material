@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MARIUS 面料实时库存</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f0ebe4;
+      --card: #fff;
+      --ink: #1a1a1a;
+      --muted: #6b6560;
+      --accent: #6b4f3a;
+      --border: rgba(0,0,0,.08);
+      --shadow: 0 8px 30px rgba(0,0,0,.06);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Noto Sans SC', sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+    header {
+      background: linear-gradient(135deg, #3d2c24 0%, #6b4f3a 55%, #8b7355 100%);
+      color: #fff;
+      padding: 1.25rem 1.5rem;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      box-shadow: 0 4px 20px rgba(0,0,0,.15);
+    }
+    .header-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 1rem;
+      justify-content: space-between;
+    }
+    h1 { font-size: 1.25rem; font-weight: 700; }
+    .subtitle { font-size: .8rem; opacity: .8; margin-top: .2rem; }
+    .header-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+    .btn {
+      border: none;
+      border-radius: 8px;
+      padding: .5rem 1rem;
+      font-size: .85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-ghost { background: rgba(255,255,255,.18); color: #fff; }
+    .status-pill {
+      font-size: .75rem;
+      padding: .35rem .75rem;
+      border-radius: 999px;
+      background: rgba(255,255,255,.15);
+    }
+    .nav-link {
+      font-size: .75rem;
+      color: rgba(255,255,255,.85);
+      text-decoration: none;
+      margin-left: .5rem;
+    }
+    .nav-link:hover { text-decoration: underline; }
+    main { max-width: 1400px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; }
+    .filters {
+      background: var(--card);
+      border-radius: 14px;
+      padding: 1rem 1.25rem;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+      margin-bottom: 1.25rem;
+      display: grid;
+      gap: .85rem;
+    }
+    .filter-row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+    .filter-row label { font-size: .75rem; color: var(--muted); font-weight: 600; min-width: 4.5rem; }
+    input[type="search"], select {
+      flex: 1;
+      min-width: 160px;
+      padding: .55rem .75rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: .9rem;
+    }
+    .chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .chip {
+      padding: .3rem .65rem;
+      border-radius: 999px;
+      font-size: .75rem;
+      border: 1px solid var(--border);
+      background: #faf8f5;
+      cursor: pointer;
+    }
+    .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .stats { margin-bottom: 1rem; font-size: .85rem; color: var(--muted); }
+    .stats strong { color: var(--ink); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      transition: transform .2s;
+    }
+    .card:hover { transform: translateY(-3px); }
+    .card-img-wrap {
+      aspect-ratio: 4/3;
+      background: #e8e4de;
+      position: relative;
+      overflow: hidden;
+    }
+    .card-img-wrap img { width: 100%; height: 100%; object-fit: cover; }
+    .card-img-wrap .no-img {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: .8rem;
+    }
+    .stock-badge {
+      position: absolute;
+      top: .6rem;
+      right: .6rem;
+      background: rgba(61, 44, 36, .88);
+      color: #fff;
+      font-size: .72rem;
+      font-weight: 700;
+      padding: .28rem .55rem;
+      border-radius: 6px;
+    }
+    .stock-badge.high { background: #166534; }
+    .tag-badge {
+      position: absolute;
+      bottom: .6rem;
+      left: .6rem;
+      font-size: .65rem;
+      font-weight: 600;
+      padding: .2rem .5rem;
+      border-radius: 6px;
+      background: rgba(184, 134, 11, .92);
+      color: #fff;
+    }
+    .tag-badge.running { background: rgba(37, 99, 235, .9); }
+    .tag-badge.failed { background: rgba(185, 28, 28, .9); }
+    .kind-badge {
+      position: absolute;
+      top: .6rem;
+      left: .6rem;
+      background: rgba(255,255,255,.92);
+      color: var(--accent);
+      font-size: .65rem;
+      font-weight: 600;
+      padding: .2rem .5rem;
+      border-radius: 6px;
+    }
+    .card-body { padding: .9rem 1rem 1rem; display: flex; flex-direction: column; gap: .4rem; }
+    .card-desc { font-size: .78rem; color: #444; line-height: 1.45; }
+    .tag-list { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .2rem; }
+    .tag {
+      font-size: .65rem;
+      padding: .15rem .45rem;
+      border-radius: 4px;
+      background: #ebe6df;
+      color: #5c4a32;
+    }
+    .tag.pattern { background: #e8eef3; color: #2c3e50; }
+    .tag.weave { background: #ede8f7; color: #4a3d6b; }
+    .card-title {
+      font-size: .92rem;
+      font-weight: 600;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .card-meta { font-size: .72rem; color: var(--muted); }
+    .variants {
+      margin-top: .4rem;
+      padding-top: .45rem;
+      border-top: 1px dashed var(--border);
+      font-size: .72rem;
+    }
+    .variants summary { cursor: pointer; color: var(--muted); font-weight: 600; }
+    .variant-line {
+      display: flex;
+      justify-content: space-between;
+      gap: .5rem;
+      padding: .2rem 0;
+    }
+    .variant-line span:last-child { font-weight: 600; white-space: nowrap; }
+    .loading, .error { text-align: center; padding: 3rem; color: var(--muted); }
+    .error { color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div>
+        <h1>MARIUS 面料实时库存</h1>
+        <p class="subtitle">观远 BI · ≥300m · 存量已打标 · 新增自动走小米
+          <a class="nav-link" href="/button/">纽扣看板 →</a>
+        </p>
+      </div>
+      <div class="header-actions">
+        <span class="status-pill" id="statusText">加载中…</span>
+        <button class="btn btn-ghost" id="btnTagRun">补打标</button>
+        <button class="btn btn-ghost" id="btnRefresh">刷新 BI</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="filters">
+      <div class="filter-row">
+        <label>搜索</label>
+        <input type="search" id="searchInput" placeholder="名称、编码、颜色、供应商、仓库…" />
+        <label>最低可配</label>
+        <select id="minStock">
+          <option value="300" selected>≥ 300 m</option>
+          <option value="500">≥ 500 m</option>
+          <option value="1000">≥ 1000 m</option>
+          <option value="2000">≥ 2000 m</option>
+          <option value="0">全部（仍受 BI 拉取阈值限制）</option>
+        </select>
+        <label>展示</label>
+        <select id="viewMode">
+          <option value="product" selected>按款（合并色号）</option>
+          <option value="sku">按 SKU</option>
+        </select>
+      </div>
+      <div class="filter-row">
+        <label>面料种类</label>
+        <div class="chips" id="kindChips"></div>
+      </div>
+      <div class="filter-row">
+        <label>仓库</label>
+        <div class="chips" id="whChips"></div>
+      </div>
+      <div class="filter-row">
+        <label>花纹</label>
+        <div class="chips" id="patternChips"></div>
+      </div>
+      <div class="filter-row">
+        <label>织法</label>
+        <div class="chips" id="weaveChips"></div>
+      </div>
+    </section>
+    <div class="stats" id="statsBar"></div>
+    <div id="content" class="loading">正在从 BI 拉取面料库存…</div>
+  </main>
+
+  <script>
+    const BASE = '/fabric';
+    const state = { kind: '', warehouse: '', pattern: '', weave: '', unit: 'm', tagPoll: null };
+
+    function fmtTime(ts) {
+      if (!ts) return '—';
+      return new Date(ts * 1000).toLocaleString('zh-CN', { hour12: false });
+    }
+
+    function stockClass(n) {
+      return n >= 2000 ? 'high' : '';
+    }
+
+    function fmtM(n, unit) {
+      const u = unit || 'm';
+      const val = Math.round(n * 10) / 10;
+      return `${val} ${u}`;
+    }
+
+    function renderChips(container, items, key, allLabel) {
+      container.innerHTML = '';
+      const all = document.createElement('span');
+      all.className = 'chip' + (state[key] === '' ? ' active' : '');
+      all.textContent = allLabel;
+      all.onclick = () => { state[key] = ''; updateChips(); loadItems(); };
+      container.appendChild(all);
+      items.forEach(v => {
+        const el = document.createElement('span');
+        el.className = 'chip' + (state[key] === v ? ' active' : '');
+        el.textContent = v;
+        el.onclick = () => {
+          state[key] = state[key] === v ? '' : v;
+          updateChips();
+          loadItems();
+        };
+        container.appendChild(el);
+      });
+    }
+
+    function tagBadgeHtml(status) {
+      const map = {
+        pending: ['待打标', 'tag-badge'],
+        running: ['打标中', 'tag-badge running'],
+        failed: ['打标失败', 'tag-badge failed'],
+      };
+      const m = map[status];
+      return m ? `<span class="${m[1]}">${m[0]}</span>` : '';
+    }
+
+    function updateChips() {
+      const keys = { kindChips: 'kind', whChips: 'warehouse', patternChips: 'pattern', weaveChips: 'weave' };
+      Object.entries(keys).forEach(([id, key]) => {
+        document.querySelectorAll('#' + id + ' .chip').forEach((el, i) => {
+          if (i === 0) el.classList.toggle('active', state[key] === '');
+          else el.classList.toggle('active', el.textContent === state[key]);
+        });
+      });
+    }
+
+    function startTagPolling() {
+      if (state.tagPoll) return;
+      state.tagPoll = setInterval(async () => {
+        const jobs = await (await fetch(BASE + '/api/tag-jobs')).json();
+        if ((jobs.active || 0) > 0) await loadItems();
+        else { clearInterval(state.tagPoll); state.tagPoll = null; }
+      }, 5000);
+    }
+
+    function buildQuery(refresh) {
+      const p = new URLSearchParams();
+      p.set('min_stock', document.getElementById('minStock').value);
+      const q = document.getElementById('searchInput').value.trim();
+      if (q) p.set('q', q);
+      if (state.kind) p.set('kind', state.kind);
+      if (state.warehouse) p.set('warehouse', state.warehouse);
+      if (state.pattern) p.set('pattern', state.pattern);
+      if (state.weave) p.set('weave', state.weave);
+      p.set('view', document.getElementById('viewMode').value);
+      if (refresh) p.set('refresh', '1');
+      return p.toString();
+    }
+
+    function renderVariants(item) {
+      if (!item.variants || item.variants.length <= 1) return '';
+      const u = item.单位 || state.unit;
+      const lines = item.variants.map(v =>
+        `<div class="variant-line"><span>${v.颜色规格 || v.颜色描述 || v.物料明细编码}</span><span>${fmtM(v.可配库存, v.单位 || u)}</span></div>`
+      ).join('');
+      return `<details class="variants" open><summary>${item.sku_count} 个色号/SKU</summary>${lines}</details>`;
+    }
+
+    function renderCard(item) {
+      const tags = item.视觉标签 || {};
+      const u = item.单位 || state.unit;
+      const stock = item.可配库存合计 != null ? item.可配库存合计 : item.可配库存;
+      const badge = item.sku_count > 1
+        ? `${fmtM(stock, u)} · ${item.sku_count}色`
+        : fmtM(stock, u);
+      const img = item.主图
+        ? `<img src="${item.主图}" alt="" loading="lazy" onerror="this.parentElement.innerHTML='<div class=no-img>图片加载失败</div>'" />`
+        : '<div class="no-img">暂无面料图</div>';
+      const metaLine = item.sku_count > 1
+        ? `${item.物料种类 || ''} · 多色号`
+        : `${item.物料种类 || ''} · ${item.颜色规格 || item.颜色描述 || ''}`;
+      const tagSt = item.tag_status || 'done';
+      const desc = (tagSt === 'pending' || tagSt === 'running')
+        ? '（等待 Agent 视觉打标，完成后自动更新）'
+        : (tags.视觉描述 || '');
+      const kws = (tags.关键词 || []).slice(0, 8);
+      const tagHtml = kws.map(k => {
+        let cls = 'tag';
+        if (k === tags.花纹图案) cls += ' pattern';
+        if (k === tags.织法组织) cls += ' weave';
+        return `<span class="${cls}">${k}</span>`;
+      }).join('');
+      const extra = [tags.织法组织, tags.花纹图案, tags.表面质感].filter(Boolean).join(' · ');
+      return `
+        <article class="card">
+          <div class="card-img-wrap">
+            ${img}
+            <span class="kind-badge">${item.物料种类 || '面料'}</span>
+            ${tagBadgeHtml(tagSt)}
+            <span class="stock-badge ${stockClass(stock)}" title="可配库存（款式合计）">可配 ${badge}</span>
+          </div>
+          <div class="card-body">
+            <div class="card-title">${item.物料名称 || '—'}</div>
+            <div class="card-meta">${metaLine}</div>
+            <div class="card-meta">${item.物料编码 || ''} · ${item.仓库名称 || ''}</div>
+            <div class="card-meta">${item.供应商简称 ? '供应商 ' + item.供应商简称 : ''}${item.年份名称 ? ' · ' + item.年份名称 : ''}</div>
+            ${extra ? `<div class="card-meta">${extra}</div>` : ''}
+            ${desc ? `<p class="card-desc">${desc}</p>` : ''}
+            <div class="tag-list">${tagHtml}</div>
+            ${renderVariants(item)}
+          </div>
+        </article>`;
+    }
+
+    async function loadMeta() {
+      const res = await fetch(BASE + '/api/meta');
+      const data = await res.json();
+      state.unit = data.unit || 'm';
+      renderChips(document.getElementById('kindChips'), data.kinds || [], 'kind', '全部');
+      renderChips(document.getElementById('whChips'), (data.warehouses || []).slice(0, 24), 'warehouse', '全部');
+      renderChips(document.getElementById('patternChips'), data.patterns || [], 'pattern', '全部');
+      renderChips(document.getElementById('weaveChips'), data.weaves || [], 'weave', '全部');
+      const tj = data.tag_jobs || {};
+      if ((tj.active || 0) > 0) startTagPolling();
+    }
+
+    async function loadItems(refresh = false) {
+      const content = document.getElementById('content');
+      content.className = 'loading';
+      content.textContent = refresh ? '正在刷新 BI…' : '加载中…';
+      try {
+        const res = await fetch(BASE + '/api/fabrics?' + buildQuery(refresh));
+        const data = await res.json();
+        const items = data.items || [];
+        const src = data.source || 'bi';
+        const warn = data.warning ? ` · ${data.warning}` : '';
+        const tj = data.tag_jobs || {};
+        const tagNote = (tj.pending || 0) > 0
+          ? ` · 待打标 ${tj.pending}`
+          : (tj.provider === 'agent' ? ` · 已缓存 ${tj.agent_cache_urls || 0} 图` : '');
+        document.getElementById('statusText').textContent =
+          `${data.total} 款 · ${fmtTime(data.fetched_at)} · ${src}${data.cached ? ' (缓存)' : ''}${tagNote}${warn}`;
+        if ((tj.active || 0) > 0) startTagPolling();
+        const viewLabel = data.view === 'product' ? '款式' : 'SKU';
+        const skuNote = data.sku_total && data.sku_total !== data.total
+          ? `（<strong>${data.sku_total}</strong> 条 SKU）` : '';
+        document.getElementById('statsBar').innerHTML =
+          `显示 <strong>${data.total}</strong> 个${viewLabel}${skuNote} · 库内 <strong>${data.total_all}</strong> 条 · 按可配米数降序`;
+        if (!items.length) {
+          content.className = 'loading';
+          content.textContent = '没有匹配的面料，请调整筛选';
+          return;
+        }
+        content.className = 'grid';
+        content.innerHTML = items.map(renderCard).join('');
+      } catch (e) {
+        content.className = 'error';
+        content.textContent = '加载失败: ' + e.message;
+      }
+    }
+
+    let searchTimer;
+    document.getElementById('searchInput').addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => loadItems(), 300);
+    });
+    document.getElementById('minStock').addEventListener('change', () => loadItems());
+    document.getElementById('viewMode').addEventListener('change', () => loadItems());
+    document.getElementById('btnRefresh').addEventListener('click', () => loadItems(true));
+    document.getElementById('btnTagRun').addEventListener('click', async () => {
+      await fetch(BASE + '/api/tag-jobs/run', { method: 'POST' });
+      startTagPolling();
+      await loadItems(true);
+    });
+
+    (async () => {
+      await loadMeta();
+      await loadItems();
+    })();
+  </script>
+</body>
+</html>

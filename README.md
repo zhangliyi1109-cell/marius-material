@@ -27,19 +27,36 @@ pip install -r requirements.txt
 python3 material_app.py --port 8080
 ```
 
-## 部署（Railway / Render / 自建）
+## 部署（GitHub + Railway / Render）
 
-1. 新建 GitHub 仓库（勿放入 weather 仓库）：
+### 1. 推送到 GitHub
+
+本地已 `git init` 并 commit 后，任选一种方式：
+
+**方式 A：安装 GitHub CLI 后一键创建**
 
 ```bash
+brew install gh
+gh auth login
 cd material-inventory
-git init
-git add .
-git commit -m "Initial material inventory (button + fabric)"
 gh repo create marius-material --public --source=. --push
 ```
 
-2. 平台设置：
+**方式 B：网页建库 + 手动 push**
+
+1. 打开 https://github.com/new 新建仓库 `marius-material`（不要勾选 README）
+2. 本地执行：
+
+```bash
+cd material-inventory
+git remote add origin git@github.com:zhangliyi1109-cell/marius-material.git
+git branch -M main
+git push -u origin main
+```
+
+（HTTPS 亦可：`https://github.com/zhangliyi1109-cell/marius-material.git`）
+
+### 2. 云平台
 
 - **Start command**: `python3 material_app.py --host 0.0.0.0 --port $PORT`
 - **Env**: `XIAOMI_API_KEY`, 以及 guancli 所需配置（需在运行环境安装 guancli 并登录）

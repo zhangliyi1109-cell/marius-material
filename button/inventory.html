@@ -388,6 +388,7 @@
       try {
         await fetch(BASE + '/api/tag-jobs/retry', {
           method: 'POST',
+          credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ detail_codes: codes }),
         });
@@ -564,9 +565,34 @@
     document.getElementById('viewMode').addEventListener('change', () => loadItems());
     document.getElementById('btnRefresh').addEventListener('click', () => loadItems(true));
     document.getElementById('btnTagRun').addEventListener('click', async () => {
-      await fetch(BASE + '/api/tag-jobs/run', { method: 'POST' });
-      startTagPolling();
-      await loadItems(true);
+      const btn = document.getElementById('btnTagRun');
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '打标中…';
+      try {
+        const res = await fetch(BASE + '/api/tag-jobs/run', {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || ('HTTP ' + res.status));
+        }
+        const msg = data.message || ('已入队 ' + (data.enqueued || 0) + ' 个');
+        document.getElementById('statusText').textContent =
+          (document.getElementById('statusText').dataset.base || document.getElementById('statusText').textContent.split(' · 打标')[0])
+          + ' · ' + msg;
+        if ((data.enqueued || 0) > 0 || (data.active || 0) > 0) startTagPolling();
+        await loadItems(true);
+        if ((data.enqueued || 0) === 0 && (data.failed || 0) > 0) {
+          alert('入队 0 个。有 ' + data.failed + ' 个失败记录，请点卡片上「重新打标」');
+        }
+      } catch (e) {
+        alert('补打标失败: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = old;
+      }
     });
 
     (async () => {

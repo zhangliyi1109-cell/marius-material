@@ -147,6 +147,24 @@ class TagPipeline:
                 tags = mod.parse_text_tags(item_for_check)
                 self._apply_no_image(detail, item_for_check, tags)
                 continue
+            if meta["status"] == "failed":
+                with self._lock:
+                    if detail in self._seen:
+                        continue
+                    self._seen.add(detail)
+                self.store.save_sku_tags(
+                    detail,
+                    mod.parse_text_tags(item_for_check),
+                    image_url=url,
+                    status="pending",
+                    has_vision=False,
+                    error=None,
+                )
+                self._queue.put(TagJob(detail_code=detail, row=dict(row)))
+                with self._lock:
+                    self._stats.pending += 1
+                added += 1
+                continue
             if self.store.get_vision(url):
                 tags = self._merge_for_row(item_for_check, url)
                 self.store.save_sku_tags(
@@ -177,7 +195,15 @@ class TagPipeline:
     def enqueue_all_pending(self, rows: list[dict]) -> int:
         with self._lock:
             self._seen.clear()
-        return self.enqueue_rows(rows)
+        added = self.enqueue_rows(rows)
+        row_map = {(r.get("物料明细编码") or "").strip(): r for r in rows}
+        codes = [
+            c for c in self.store.list_details_by_status("pending", "failed")
+            if c in row_map
+        ]
+        if codes:
+            added += self.retry_details(rows, codes)
+        return added
 
     def retry_details(self, rows: list[dict], detail_codes: list[str]) -> int:
         """将失败的 SKU 重新入队打标。"""

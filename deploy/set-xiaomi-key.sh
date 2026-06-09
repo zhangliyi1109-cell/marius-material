@@ -7,27 +7,28 @@ read -r -s -p "XIAOMI_API_KEY（粘贴一次即可）: " KEY
 echo
 KEY="$(printf '%s' "$KEY" | tr -d '[:space:]')"
 if [ -z "$KEY" ]; then echo "不能为空"; exit 1; fi
-if [ "${#KEY}" -gt 80 ]; then
-  echo "WARN: Key 长度 ${#KEY} 异常，将只保留开头 tp- 段"
-  KEY="$(printf '%s' "$KEY" | sed -E 's/^(tp-[a-zA-Z0-9]{20,60}).*/\1/')"
-fi
-if ! printf '%s' "$KEY" | grep -qE '^tp-[a-zA-Z0-9]{20,60}$'; then
-  echo "ERROR: Key 格式不对，应为 tp- 开头、约 50 字符"
+if [ "${#KEY}" -gt 55 ]; then
+  echo "ERROR: Key 过长 (${#KEY})，请只粘贴一次"
   exit 1
+fi
+if ! printf '%s' "$KEY" | grep -qE '^tp-[a-zA-Z0-9]{48}$'; then
+  echo "WARN: Key 长度 ${#KEY}，标准应为 tp- + 48 位（共 51 字符）"
 fi
 
 export NEW_XIAOMI_KEY="$KEY"
 ./venv/bin/python3 <<'PY'
 from pathlib import Path
 import os
-import re
+import sys
+sys.path.insert(0, "shared")
+from vision_tagger import _sanitize_api_key
 
-key = os.environ["NEW_XIAOMI_KEY"]
+key = _sanitize_api_key(os.environ["NEW_XIAOMI_KEY"])
 path = Path(".env")
 lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
 out, found = [], False
 for line in lines:
-    if re.match(r"^XIAOMI_API_KEY=", line):
+    if line.startswith("XIAOMI_API_KEY="):
         out.append(f"XIAOMI_API_KEY={key}")
         found = True
     else:

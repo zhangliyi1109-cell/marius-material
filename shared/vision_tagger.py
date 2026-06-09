@@ -47,15 +47,17 @@ FABRIC_VISION_PROMPT = """你是服装面料视觉分析师。根据面料图片
 
 def _sanitize_api_key(key: str) -> str:
     key = (key or "").strip()
-    if not key:
-        return ""
-    # 误粘贴多次时只取第一段 tp- key（约 50 字符）
-    m = re.match(r"^(tp-[a-zA-Z0-9]{20,60})", key)
-    if m:
-        return m.group(1)
-    if len(key) > 80 and key.startswith("tp-"):
-        return key[:60]
-    return key
+    if not key or not key.startswith("tp-"):
+        return key
+    body = key[3:]
+    # 重复粘贴时会出现 ...k6ttp-...，在第二段 tp- 前截断
+    dup = body.find("tp-")
+    if dup > 0:
+        body = body[:dup]
+    # 小米 token-plan key：tp- 后 48 位
+    if len(body) >= 48:
+        return "tp-" + body[:48]
+    return "tp-" + body
 
 
 def resolve_api_key() -> str | None:
@@ -67,9 +69,9 @@ def resolve_api_key() -> str | None:
         try:
             data = json.loads(oc.read_text(encoding="utf-8"))
             env = data.get("env") or {}
-            key = env.get("XIAOMI_API_KEY") or (env.get("vars") or {}).get("XIAOMI_API_KEY")
-            if key:
-                return str(key).strip()
+            raw = env.get("XIAOMI_API_KEY") or (env.get("vars") or {}).get("XIAOMI_API_KEY")
+            if raw:
+                return _sanitize_api_key(str(raw).strip())
         except (json.JSONDecodeError, OSError):
             pass
     return None

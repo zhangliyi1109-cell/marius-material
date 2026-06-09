@@ -45,8 +45,21 @@ FABRIC_VISION_PROMPT = """你是服装面料视觉分析师。根据面料图片
 只输出 JSON。"""
 
 
+def _sanitize_api_key(key: str) -> str:
+    key = (key or "").strip()
+    if not key:
+        return ""
+    # 误粘贴多次时只取第一段 tp- key（约 50 字符）
+    m = re.match(r"^(tp-[a-zA-Z0-9]{20,60})", key)
+    if m:
+        return m.group(1)
+    if len(key) > 80 and key.startswith("tp-"):
+        return key[:60]
+    return key
+
+
 def resolve_api_key() -> str | None:
-    key = os.environ.get("XIAOMI_API_KEY", "").strip()
+    key = _sanitize_api_key(os.environ.get("XIAOMI_API_KEY", ""))
     if key:
         return key
     oc = Path.home() / ".openclaw" / "openclaw.json"

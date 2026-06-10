@@ -57,7 +57,7 @@ def load_config() -> dict:
 
 
 def load_visual_index(cfg: dict) -> dict[str, dict]:
-    """SKU 明细编码 → 视觉标签；优先 SQLite，JSON 兜底。"""
+    """SKU 明细编码 → 视觉标签；优先 SQLite，JSON 兜底；同款物料编码共享标签。"""
     store = get_store(cfg)
     index = store.build_visual_index()
     path = ROOT / cfg.get("visual_tags_json", "seed_inventory.json")
@@ -66,13 +66,44 @@ def load_visual_index(cfg: dict) -> dict[str, dict]:
         for item in items:
             key = (item.get("物料明细编码") or "").strip()
             tags = item.get("视觉标签") or {}
-            if not key or not tags:
+            if not tags:
+                continue
+            product_key = (item.get("物料编码") or item.get("物料名称") or "").strip()
+            if product_key:
+                pk = f"__product__{product_key}"
+                if pk not in index or not (index.get(pk) or {}).get("视觉描述"):
+                    index[pk] = tags
+            if not key:
                 continue
             existing = index.get(key) or {}
             # DB 里 done 但 tags 为空时，用 seed JSON 兜底（避免同步后仍无标签）
             if not (existing.get("视觉描述") or existing.get("关键词")):
                 index[key] = tags
     return index
+
+
+def _visual_for_row(row: dict, visual_index: dict[str, dict]) -> dict:
+    detail = (row.get("物料明细编码") or "").strip()
+    visual = visual_index.get(detail, {})
+    if visual.get("视觉描述") or visual.get("关键词"):
+        return visual
+    product_key = (row.get("物料编码") or row.get("物料名称") or "").strip()
+    if product_key:
+        return visual_index.get(f"__product__{product_key}", visual)
+    return visual
+
+
+def _has_visual_tags(row: dict) -> bool:
+    tags = row.get("视觉标签") or {}
+    return bool(tags.get("视觉描述") or tags.get("关键词"))
+
+
+def _pick_product_representative(items: list[dict]) -> dict:
+    items.sort(key=lambda x: x["可配库存"], reverse=True)
+    for it in items:
+        if _has_visual_tags(it):
+            return dict(it)
+    return dict(items[0])
 
 
 def bootstrap_tagging(cfg: dict) -> None:
@@ -183,7 +214,7 @@ def normalize_row(row: dict, visual_index: dict[str, dict], cfg: dict) -> dict:
     detail = (row.get("物料明细编码") or "").strip()
     spec = parse_color_spec(row.get("物料颜色规格名称") or "")
     stock = float(row.get("可配库存") or 0)
-    visual = visual_index.get(detail, {})
+    visual = _visual_for_row(row, visual_index)
     return {
         "物料种类": row.get("物料种类", ""),
         "纽扣类型": infer_button_type(row),
@@ -260,9 +291,8 @@ def group_by_product(rows: list[dict]) -> list[dict]:
 
     merged: list[dict] = []
     for _key, items in groups.items():
-        items.sort(key=lambda x: x["可配库存"], reverse=True)
         total_stock = sum(x["可配库存"] for x in items)
-        rep = dict(items[0])
+        rep = _pick_product_representative(items)
         rep["可配库存合计"] = total_stock
         rep["可配库存"] = total_stock
         rep["sku_count"] = len(items)
@@ -275,12 +305,17 @@ def group_by_product(rows: list[dict]) -> list[dict]:
                 "tag_status": x.get("tag_status"),
                 "tag_error": x.get("tag_error"),
             }
-            for x in items
+            for x in sorted(items, key=lambda x: x["可配库存"], reverse=True)
         ]
-        rep["tag_status"] = _aggregate_tag_status(items)
-        err, codes = tag_fail_info(items)
-        rep["tag_error"] = err
-        rep["retry_detail_codes"] = codes
+        if _has_visual_tags(rep):
+            rep["tag_status"] = "done"
+            rep["tag_error"] = ""
+            rep["retry_detail_codes"] = []
+        else:
+            rep["tag_status"] = _aggregate_tag_status(items)
+            err, codes = tag_fail_info(items)
+            rep["tag_error"] = err
+            rep["retry_detail_codes"] = codes
         merged.append(rep)
     merged.sort(key=lambda x: x["可配库存合计"], reverse=True)
     return merged

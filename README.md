@@ -33,7 +33,7 @@ python3 material_app.py
 
 - Python 3.10+
 - [guancli](https://github.com/guan-data/guancli) 已配置观远 BI 凭证
-- 环境变量 `XIAOMI_API_KEY`（新增 SKU 自动视觉打标，可选）
+- 视觉 API Key（新增 SKU 自动打标，可选）：`XIAOMI_API_KEY` 或 `KIMI_API_KEY`
 
 ```bash
 cd material-inventory
@@ -76,7 +76,39 @@ git push -u origin main
 ### 2. 云平台
 
 - **Start command**: `python3 material_app.py --host 0.0.0.0 --port $PORT`
-- **Env**: `XIAOMI_API_KEY`, 以及 guancli 所需配置（需在运行环境安装 guancli 并登录）
+- **Env**: `XIAOMI_API_KEY` / `KIMI_API_KEY`，以及 guancli 所需配置（需在运行环境安装 guancli 并登录）
+
+## 视觉打标 Provider
+
+在 `button/inventory_config.json` 与 `fabric/inventory_config.json` 的 `vision` 段切换：
+
+| provider | 说明 | 环境变量 | 默认 model |
+|----------|------|----------|------------|
+| `xiaomi` | 小米 Mimo 视觉 API | `XIAOMI_API_KEY` | `mimo-v2.5` |
+| `kimi` | Moonshot Kimi 视觉 API | `KIMI_API_KEY` 或 `MOONSHOT_API_KEY` | `kimi-k2.6` |
+| `agent` | 仅面料：使用本地 `visual_cache.json`，不调 API | — | — |
+
+纽扣示例（小米）：
+
+```json
+"vision": {
+  "provider": "xiaomi",
+  "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+  "model": "mimo-v2.5"
+}
+```
+
+切换 Kimi 时改 `provider` 并填写对应 Key，重启服务即可：
+
+```json
+"vision": {
+  "provider": "kimi",
+  "base_url": "https://api.moonshot.cn/v1",
+  "model": "kimi-k2.6"
+}
+```
+
+健康检查：`GET /health` 返回各模块当前 provider 与 Key 是否已配置。
 
 ## 目录结构
 
@@ -84,7 +116,7 @@ git push -u origin main
 material-inventory/
 ├── material_app.py      # 统一入口
 ├── static/index.html    # 首页
-├── shared/              # 标签库、小米视觉 API
+├── shared/              # 标签库、视觉 API（xiaomi / kimi）
 ├── button/              # 纽扣服务 + 视觉缓存
 └── fabric/              # 面料服务 + 视觉缓存
 ```

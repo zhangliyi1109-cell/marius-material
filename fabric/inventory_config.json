@@ -10,6 +10,10 @@
   "vision": {
     "provider": "xiaomi",
     "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
-    "model": "mimo-v2.5"
+    "model": "mimo-v2.5",
+    "request_interval_sec": 3,
+    "max_enqueue_per_run": 20,
+    "max_enqueue_per_fetch": 10,
+    "quota_pause_sec": 600
   }
 }

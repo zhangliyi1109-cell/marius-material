@@ -14,7 +14,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 from tag_store import TagStore
-from vision_tagger import analyze_image, resolve_api_key
+from tag_utils import is_quota_error, quota_user_message
+from vision_tagger import analyze_image, api_key_env_name, resolve_api_key, vision_settings
 
 try:
     from image_fetch import download_image
@@ -76,14 +77,21 @@ class TagPipeline:
         self.store = store
         self.cfg = cfg
         vision_cfg = cfg.get("vision") or {}
-        self.base_url = vision_cfg.get("base_url", "https://token-plan-cn.xiaomimimo.com/v1")
-        self.model = vision_cfg.get("model", "mimo-v2.5")
+        vs = vision_settings(vision_cfg)
+        self.provider = vs["provider"]
+        self.base_url = vs["base_url"]
+        self.model = vs["model"]
         self._queue: queue.Queue[TagJob | None] = queue.Queue()
         self._seen: set[str] = set()
         self._lock = threading.Lock()
         self._stats = WorkerStats()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self._last_api_at: float = 0.0
+        self._quota_pause_until: float = 0.0
+        self.request_interval = vs["request_interval_sec"]
+        self.quota_pause_sec = vs["quota_pause_sec"]
+        self.max_enqueue_per_run = vs["max_enqueue_per_run"]
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -117,15 +125,22 @@ class TagPipeline:
                 "active": active,
                 "last_error": s.last_error,
                 "last_finished_at": s.last_finished_at,
-                "api_configured": bool(resolve_api_key()),
+                "api_configured": bool(resolve_api_key(self.provider)),
+                "provider": self.provider,
+                "model": self.model,
                 "db_counts": db,
+                "quota_paused": time.time() < self._quota_pause_until,
+                "quota_resume_at": self._quota_pause_until if self._quota_pause_until else None,
             }
 
-    def enqueue_rows(self, rows: list[dict]) -> int:
+    def enqueue_rows(self, rows: list[dict], *, limit: int | None = None) -> int:
         """将需要打标的 SKU 入队，返回入队数量。"""
+        cap = limit if limit is not None else self.max_enqueue_per_run
         added = 0
         mod = extract_mod()
         for row in rows:
+            if added >= cap:
+                break
             detail = (row.get("物料明细编码") or "").strip()
             if not detail:
                 continue
@@ -146,6 +161,24 @@ class TagPipeline:
             if not url:
                 tags = mod.parse_text_tags(item_for_check)
                 self._apply_no_image(detail, item_for_check, tags)
+                continue
+            if meta["status"] == "failed":
+                with self._lock:
+                    if detail in self._seen:
+                        continue
+                    self._seen.add(detail)
+                self.store.save_sku_tags(
+                    detail,
+                    mod.parse_text_tags(item_for_check),
+                    image_url=url,
+                    status="pending",
+                    has_vision=False,
+                    error=None,
+                )
+                self._queue.put(TagJob(detail_code=detail, row=dict(row)))
+                with self._lock:
+                    self._stats.pending += 1
+                added += 1
                 continue
             if self.store.get_vision(url):
                 tags = self._merge_for_row(item_for_check, url)
@@ -177,7 +210,15 @@ class TagPipeline:
     def enqueue_all_pending(self, rows: list[dict]) -> int:
         with self._lock:
             self._seen.clear()
-        return self.enqueue_rows(rows)
+        added = self.enqueue_rows(rows)
+        row_map = {(r.get("物料明细编码") or "").strip(): r for r in rows}
+        codes = [
+            c for c in self.store.list_details_by_status("pending", "failed")
+            if c in row_map
+        ]
+        if codes:
+            added += self.retry_details(rows, codes)
+        return added
 
     def retry_details(self, rows: list[dict], detail_codes: list[str]) -> int:
         """将失败的 SKU 重新入队打标。"""
@@ -257,16 +298,32 @@ class TagPipeline:
             logger.warning("download %s: %s", url, exc)
             return None
 
+    def _throttle_api(self) -> None:
+        wait = self.request_interval - (time.time() - self._last_api_at)
+        if wait > 0:
+            time.sleep(wait)
+
     def _analyze_with_retry(self, path: Path, attempts: int = 3) -> dict:
         last_err: Exception | None = None
         for i in range(attempts):
             try:
-                return analyze_image(path, base_url=self.base_url, model=self.model)
+                self._throttle_api()
+                vision = analyze_image(
+                    path,
+                    provider=self.provider,
+                    base_url=self.base_url,
+                    model=self.model,
+                )
+                self._last_api_at = time.time()
+                return vision
             except Exception as exc:
                 last_err = exc
                 logger.warning("vision attempt %s/%s failed: %s", i + 1, attempts, exc)
                 if i + 1 < attempts:
-                    time.sleep(min(2 * (i + 1), 8))
+                    if is_quota_error(str(exc)):
+                        time.sleep(90 * (i + 1))
+                    else:
+                        time.sleep(min(2 * (i + 1), 8))
         raise RuntimeError(str(last_err) if last_err else "视觉打标失败")
 
     def _process_job(self, job: TagJob) -> None:
@@ -292,9 +349,10 @@ class TagPipeline:
         try:
             vision = self.store.get_vision(url)
             if not vision:
-                if not resolve_api_key():
+                if not resolve_api_key(self.provider):
                     raise RuntimeError(
-                        "未配置 XIAOMI_API_KEY，请在 /root/marius-material/.env 中设置后重启服务"
+                        f"未配置 {self.provider} API Key，请在 .env 设置 "
+                        f"{api_key_env_name(self.provider)} 后重启服务"
                     )
                 path = self._download(url)
                 if not path:
@@ -315,6 +373,21 @@ class TagPipeline:
             logger.exception("tag failed %s", detail)
             err = str(exc)[:500]
             tags = mod.parse_text_tags(item)
+            if is_quota_error(err):
+                err = quota_user_message()
+                self._quota_pause_until = time.time() + self.quota_pause_sec
+                self.store.save_sku_tags(
+                    detail,
+                    tags,
+                    image_url=url,
+                    status="pending",
+                    has_vision=False,
+                    error=err,
+                )
+                with self._lock:
+                    self._stats.last_error = err
+                    self._seen.discard(detail)
+                return
             self.store.save_sku_tags(
                 detail,
                 tags,
@@ -331,6 +404,9 @@ class TagPipeline:
 
     def _run_loop(self) -> None:
         while not self._stop.is_set():
+            if time.time() < self._quota_pause_until:
+                time.sleep(5)
+                continue
             try:
                 job = self._queue.get(timeout=1.0)
             except queue.Empty:

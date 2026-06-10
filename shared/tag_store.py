@@ -216,9 +216,15 @@ class TagStore:
             out[status] = cnt
         return out
 
-    def list_known_details(self) -> set[str]:
-        rows = self._conn.execute("SELECT detail_code FROM sku_tags").fetchall()
-        return {r["detail_code"] for r in rows}
+    def list_details_by_status(self, *statuses: str) -> list[str]:
+        if not statuses:
+            return []
+        placeholders = ",".join("?" for _ in statuses)
+        rows = self._conn.execute(
+            f"SELECT detail_code FROM sku_tags WHERE status IN ({placeholders})",
+            statuses,
+        ).fetchall()
+        return [r["detail_code"] for r in rows]
 
     def needs_tagging(self, detail_code: str, image_url: str) -> bool:
         meta = self.get_tag_meta(detail_code)

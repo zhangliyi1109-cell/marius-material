@@ -162,7 +162,8 @@ def get_rows(force: bool = False) -> tuple[list[dict], dict]:
         _cache["fetched_at"] = now
         meta: dict[str, Any] = {"cached": False, "fetched_at": now, "source": "bi"}
         if cfg.get("auto_tag_on_fetch", True):
-            meta["tag_enqueued"] = get_pipeline(cfg).enqueue_rows(rows)
+            per_fetch = int((cfg.get("vision") or {}).get("max_enqueue_per_fetch", 10))
+            meta["tag_enqueued"] = get_pipeline(cfg).enqueue_rows(rows, limit=per_fetch)
         return _cache["rows"], meta
     except Exception as exc:
         if _cache["rows"]:
@@ -296,9 +297,18 @@ def api_tag_jobs():
 def api_tag_jobs_run():
     cfg = load_config()
     bootstrap_tagging(cfg)
-    rows, _ = get_rows(force=True)
-    n = get_pipeline(cfg).enqueue_all_pending(rows)
-    return jsonify({"enqueued": n, **get_pipeline(cfg).status()})
+    try:
+        rows, _ = get_rows(force=True)
+    except Exception as exc:
+        return jsonify({"error": f"拉取 BI 失败: {exc}", "enqueued": 0}), 500
+    pipe = get_pipeline(cfg)
+    n = pipe.enqueue_all_pending(rows)
+    status = pipe.status()
+    return jsonify({
+        "enqueued": n,
+        "message": f"已入队 {n} 个 SKU" if n else "没有待打标 SKU（可能已全部完成）",
+        **status,
+    })
 
 
 @bp.post("/api/tag-jobs/retry")

@@ -10,3 +10,10 @@ __pycache__/
 .button_visual_cache_part*.json
 bi-auth*.json
 *.log
+venv/
+__pycache__/
+*.pyc
+.env
+.env.bak
+*.db
+*.sqlite3

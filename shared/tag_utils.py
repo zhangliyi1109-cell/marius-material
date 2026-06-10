@@ -16,3 +16,8 @@ def is_quota_error(message: str) -> bool:
 
 def quota_user_message() -> str:
     return "小米视觉 API 配额已用尽，请次日再点「补打标」，或联系管理员充值/换 Key"
+
+
+def is_api_key_error(message: str) -> bool:
+    s = message or ""
+    return "API Key" in s or ("未配置" in s and "Key" in s)

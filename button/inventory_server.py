@@ -65,10 +65,13 @@ def load_visual_index(cfg: dict) -> dict[str, dict]:
         items = json.loads(path.read_text(encoding="utf-8"))
         for item in items:
             key = (item.get("物料明细编码") or "").strip()
-            if key and key not in index:
-                tags = item.get("视觉标签") or {}
-                if tags:
-                    index[key] = tags
+            tags = item.get("视觉标签") or {}
+            if not key or not tags:
+                continue
+            existing = index.get(key) or {}
+            # DB 里 done 但 tags 为空时，用 seed JSON 兜底（避免同步后仍无标签）
+            if not (existing.get("视觉描述") or existing.get("关键词")):
+                index[key] = tags
     return index
 
 

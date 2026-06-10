@@ -14,7 +14,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from tag_store import TagStore
-from tag_utils import is_quota_error, quota_user_message
+from tag_utils import is_api_key_error, is_quota_error, quota_user_message
 from vision_tagger import analyze_image, api_key_env_name, resolve_api_key, vision_settings
 
 try:
@@ -135,6 +135,9 @@ class TagPipeline:
 
     def enqueue_rows(self, rows: list[dict], *, limit: int | None = None) -> int:
         """将需要打标的 SKU 入队，返回入队数量。"""
+        if not resolve_api_key(self.provider):
+            logger.warning("skip enqueue: %s API key not configured", self.provider)
+            return 0
         cap = limit if limit is not None else self.max_enqueue_per_run
         added = 0
         mod = extract_mod()
@@ -154,6 +157,17 @@ class TagPipeline:
                 "主图": url,
             }
             meta = self.store.get_tag_meta(detail)
+            existing_tags = self.store.get_tags_for_detail(detail)
+            if existing_tags.get("视觉描述"):
+                if meta["status"] != "done" or not meta.get("has_vision"):
+                    self.store.save_sku_tags(
+                        detail,
+                        existing_tags,
+                        image_url=url,
+                        status="done",
+                        has_vision=True,
+                    )
+                continue
             if meta["status"] == "done" and meta.get("has_vision"):
                 continue
             if meta["status"] == "running":
@@ -339,12 +353,13 @@ class TagPipeline:
             "纽扣类型": row.get("纽扣类型", ""),
             "主图": url,
         }
+        prev_tags = self.store.get_tags_for_detail(detail) or mod.parse_text_tags(item)
         self.store.save_sku_tags(
             detail,
-            mod.parse_text_tags(item),
+            prev_tags,
             image_url=url,
             status="running",
-            has_vision=False,
+            has_vision=bool(prev_tags.get("视觉描述")),
         )
         try:
             vision = self.store.get_vision(url)
@@ -372,7 +387,30 @@ class TagPipeline:
         except Exception as exc:
             logger.exception("tag failed %s", detail)
             err = str(exc)[:500]
-            tags = mod.parse_text_tags(item)
+            tags = prev_tags if prev_tags.get("视觉描述") else mod.parse_text_tags(item)
+            if is_api_key_error(err):
+                if tags.get("视觉描述"):
+                    self.store.save_sku_tags(
+                        detail,
+                        tags,
+                        image_url=url,
+                        status="done",
+                        has_vision=True,
+                        error=None,
+                    )
+                else:
+                    self.store.save_sku_tags(
+                        detail,
+                        tags,
+                        image_url=url,
+                        status="pending",
+                        has_vision=False,
+                        error=err,
+                    )
+                with self._lock:
+                    self._stats.last_error = err
+                    self._seen.discard(detail)
+                return
             if is_quota_error(err):
                 err = quota_user_message()
                 self._quota_pause_until = time.time() + self.quota_pause_sec

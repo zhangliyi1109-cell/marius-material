@@ -224,7 +224,8 @@ def get_merged_rows(force: bool = False) -> tuple[list[dict], dict]:
         _cache["error"] = None
         meta = {"cached": False, "fetched_at": now, "source": "bi"}
         if cfg.get("auto_tag_on_fetch", True):
-            n = get_pipeline(cfg).enqueue_rows(rows)
+            per_fetch = int((cfg.get("vision") or {}).get("max_enqueue_per_fetch", 10))
+            n = get_pipeline(cfg).enqueue_rows(rows, limit=per_fetch)
             meta["tag_enqueued"] = n
     except Exception as exc:
         if _cache["rows"]:

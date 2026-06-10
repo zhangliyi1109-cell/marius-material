@@ -15,6 +15,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from tag_store import TagStore
+from tag_utils import is_quota_error, quota_user_message
 from vision_tagger import analyze_fabric_image, resolve_api_key
 
 try:
@@ -90,6 +91,11 @@ class TagPipeline:
         self._last_finished_at: float | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self._last_api_at: float = 0.0
+        self._quota_pause_until: float = 0.0
+        self.request_interval = float(vision_cfg.get("request_interval_sec", 3))
+        self.quota_pause_sec = float(vision_cfg.get("quota_pause_sec", 600))
+        self.max_enqueue_per_run = int(vision_cfg.get("max_enqueue_per_run", 20))
 
     def start(self) -> None:
         if vision_provider(self.cfg) != "xiaomi":
@@ -124,6 +130,7 @@ class TagPipeline:
                 "provider": vision_provider(self.cfg),
                 "agent_cache_urls": len(load_agent_cache()),
                 "db_counts": db,
+                "quota_paused": time.time() < self._quota_pause_until,
             }
 
     def _item_from_row(self, row: dict) -> dict:
@@ -137,12 +144,15 @@ class TagPipeline:
             "主图": row.get("主图", ""),
         }
 
-    def enqueue_rows(self, rows: list[dict]) -> int:
+    def enqueue_rows(self, rows: list[dict], *, limit: int | None = None) -> int:
         if vision_provider(self.cfg) != "xiaomi":
             return apply_agent_cache(self.store, rows)
+        cap = limit if limit is not None else self.max_enqueue_per_run
         added = 0
         mod = extract_mod()
         for row in rows:
+            if added >= cap:
+                break
             detail = (row.get("物料明细编码") or "").strip()
             if not detail:
                 continue
@@ -264,18 +274,29 @@ class TagPipeline:
             logger.warning("download %s: %s", url, exc)
             return None
 
+    def _throttle_api(self) -> None:
+        wait = self.request_interval - (time.time() - self._last_api_at)
+        if wait > 0:
+            time.sleep(wait)
+
     def _analyze_with_retry(self, path: Path, attempts: int = 3) -> dict:
         last_err: Exception | None = None
         for i in range(attempts):
             try:
-                return analyze_fabric_image(
+                self._throttle_api()
+                vision = analyze_fabric_image(
                     path, base_url=self.base_url, model=self.model
                 )
+                self._last_api_at = time.time()
+                return vision
             except Exception as exc:
                 last_err = exc
                 logger.warning("fabric vision attempt %s/%s failed: %s", i + 1, attempts, exc)
                 if i + 1 < attempts:
-                    time.sleep(min(2 * (i + 1), 8))
+                    if is_quota_error(str(exc)):
+                        time.sleep(90 * (i + 1))
+                    else:
+                        time.sleep(min(2 * (i + 1), 8))
         raise RuntimeError(str(last_err) if last_err else "视觉打标失败")
 
     def _process_job(self, job: TagJob) -> None:
@@ -314,6 +335,21 @@ class TagPipeline:
         except Exception as exc:
             err = str(exc)[:500]
             logger.exception("fabric tag failed %s", detail)
+            if is_quota_error(err):
+                err = quota_user_message()
+                self._quota_pause_until = time.time() + self.quota_pause_sec
+                self.store.save_sku_tags(
+                    detail,
+                    mod.parse_text_tags(item),
+                    image_url=url,
+                    status="pending",
+                    has_vision=False,
+                    error=err,
+                )
+                with self._lock:
+                    self._last_error = err
+                    self._seen.discard(detail)
+                return
             self.store.save_sku_tags(
                 detail,
                 mod.parse_text_tags(item),
@@ -328,6 +364,9 @@ class TagPipeline:
 
     def _run_loop(self) -> None:
         while not self._stop.is_set():
+            if time.time() < self._quota_pause_until:
+                time.sleep(5)
+                continue
             try:
                 job = self._queue.get(timeout=1.0)
             except queue.Empty:

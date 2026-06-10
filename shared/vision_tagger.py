@@ -197,6 +197,10 @@ def analyze_image(
         json=payload,
         timeout=timeout,
     )
+    if resp.status_code == 429:
+        raise RuntimeError(
+            "xiaomi vision HTTP 429: quota exhausted（配额已用尽，请稍后再试）"
+        )
     if resp.status_code != 200:
         raise RuntimeError(f"xiaomi vision HTTP {resp.status_code}: {resp.text[:500]}")
     data = resp.json()

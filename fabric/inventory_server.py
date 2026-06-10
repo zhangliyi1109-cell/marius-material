@@ -162,7 +162,8 @@ def get_rows(force: bool = False) -> tuple[list[dict], dict]:
         _cache["fetched_at"] = now
         meta: dict[str, Any] = {"cached": False, "fetched_at": now, "source": "bi"}
         if cfg.get("auto_tag_on_fetch", True):
-            meta["tag_enqueued"] = get_pipeline(cfg).enqueue_rows(rows)
+            per_fetch = int((cfg.get("vision") or {}).get("max_enqueue_per_fetch", 10))
+            meta["tag_enqueued"] = get_pipeline(cfg).enqueue_rows(rows, limit=per_fetch)
         return _cache["rows"], meta
     except Exception as exc:
         if _cache["rows"]:

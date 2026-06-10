@@ -401,6 +401,9 @@
     }
 
     function tagBadgeHtml(status, error) {
+      if (error && (error.includes('配额') || error.toLowerCase().includes('quota'))) {
+        return `<span class="tag-badge failed" title="${esc(error)}">配额暂停</span>`;
+      }
       const map = {
         pending: ['分析中…', 'tag-badge'],
         running: ['打标中', 'tag-badge running'],
@@ -487,7 +490,11 @@
       const retryCodes = retryCodesFor(item);
       let desc = '';
       if (tagSt === 'pending' || tagSt === 'running') {
-        desc = '（视觉分析进行中，稍后自动更新…）';
+        if (item.tag_error && (item.tag_error.includes('配额') || item.tag_error.toLowerCase().includes('quota'))) {
+          desc = `<div class="tag-error-box">${esc(item.tag_error)}</div><p style="font-size:.72rem;color:#666;margin-top:.35rem">配额恢复后可点「补打标」继续</p>`;
+        } else {
+          desc = '（视觉分析进行中，稍后自动更新…）';
+        }
       } else if (tagSt === 'failed') {
         const errMsg = item.tag_error || '打标失败，原因未知';
         desc = `<div class="tag-error-box">失败原因：${esc(errMsg)}</div>`;

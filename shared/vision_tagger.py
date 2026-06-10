@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""小米 Mimo 视觉 API：纽扣主图结构化打标。"""
+"""视觉打标：支持 xiaomi / kimi，OpenAI 兼容 chat/completions + 图片 base64。"""
 
 from __future__ import annotations
 
@@ -8,11 +8,24 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 import requests
 
-DEFAULT_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1"
-DEFAULT_MODEL = "mimo-v2.5"
+API_PROVIDERS = frozenset({"xiaomi", "kimi"})
+
+PROVIDER_PRESETS: dict[str, dict[str, str]] = {
+    "xiaomi": {
+        "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+        "model": "mimo-v2.5",
+        "api_key_env": "XIAOMI_API_KEY",
+    },
+    "kimi": {
+        "base_url": "https://api.moonshot.cn/v1",
+        "model": "kimi-k2.6",
+        "api_key_env": "KIMI_API_KEY",
+    },
+}
 
 VISION_PROMPT = """你是服装辅料（纽扣）视觉分析师。根据图片输出 JSON（不要 markdown 代码块），字段如下：
 {
@@ -45,36 +58,83 @@ FABRIC_VISION_PROMPT = """你是服装面料视觉分析师。根据面料图片
 只输出 JSON。"""
 
 
-def _sanitize_api_key(key: str) -> str:
+def normalize_provider(provider: str | None) -> str:
+    p = (provider or "xiaomi").strip().lower()
+    return p if p in API_PROVIDERS else "xiaomi"
+
+
+def uses_vision_api(provider: str | None) -> bool:
+    return (provider or "").strip().lower() in API_PROVIDERS
+
+
+def vision_settings(vision_cfg: dict | None) -> dict[str, Any]:
+    cfg = vision_cfg or {}
+    provider = normalize_provider(cfg.get("provider"))
+    preset = PROVIDER_PRESETS[provider]
+    return {
+        "provider": provider,
+        "base_url": (cfg.get("base_url") or preset["base_url"]).rstrip("/"),
+        "model": cfg.get("model") or preset["model"],
+        "request_interval_sec": float(cfg.get("request_interval_sec", 3)),
+        "max_enqueue_per_run": int(cfg.get("max_enqueue_per_run", 20)),
+        "max_enqueue_per_fetch": int(cfg.get("max_enqueue_per_fetch", 10)),
+        "quota_pause_sec": float(cfg.get("quota_pause_sec", 600)),
+    }
+
+
+def _openclaw_env() -> dict[str, Any]:
+    oc = Path.home() / ".openclaw" / "openclaw.json"
+    if not oc.exists():
+        return {}
+    try:
+        data = json.loads(oc.read_text(encoding="utf-8"))
+        env = data.get("env") or {}
+        if isinstance(env.get("vars"), dict):
+            return {**env, **env["vars"]}
+        return env
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _sanitize_xiaomi_key(key: str) -> str:
     key = (key or "").strip()
     if not key or not key.startswith("tp-"):
         return key
     body = key[3:]
-    # 重复粘贴时会出现 ...k6ttp-...，在第二段 tp- 前截断
     dup = body.find("tp-")
     if dup > 0:
         body = body[:dup]
-    # 小米 token-plan key：tp- 后 48 位
     if len(body) >= 48:
         return "tp-" + body[:48]
     return "tp-" + body
 
 
-def resolve_api_key() -> str | None:
-    key = _sanitize_api_key(os.environ.get("XIAOMI_API_KEY", ""))
-    if key:
-        return key
-    oc = Path.home() / ".openclaw" / "openclaw.json"
-    if oc.exists():
-        try:
-            data = json.loads(oc.read_text(encoding="utf-8"))
-            env = data.get("env") or {}
-            raw = env.get("XIAOMI_API_KEY") or (env.get("vars") or {}).get("XIAOMI_API_KEY")
-            if raw:
-                return _sanitize_api_key(str(raw).strip())
-        except (json.JSONDecodeError, OSError):
-            pass
-    return None
+def resolve_api_key(provider: str | None = None) -> str | None:
+    """按 provider 解析 API Key；未传 provider 时兼容旧逻辑（优先小米）。"""
+    p = normalize_provider(provider) if provider else None
+    oc = _openclaw_env()
+
+    def from_env(names: tuple[str, ...], *, sanitize=None) -> str | None:
+        for name in names:
+            val = (os.environ.get(name) or oc.get(name) or "").strip()
+            if not val:
+                continue
+            return sanitize(val) if sanitize else val
+        return None
+
+    if p == "kimi":
+        return from_env(("KIMI_API_KEY", "MOONSHOT_API_KEY"))
+    if p == "xiaomi":
+        return from_env(("XIAOMI_API_KEY",), sanitize=_sanitize_xiaomi_key)
+
+    # 兼容：未指定 provider
+    return from_env(("XIAOMI_API_KEY",), sanitize=_sanitize_xiaomi_key) or from_env(
+        ("KIMI_API_KEY", "MOONSHOT_API_KEY")
+    )
+
+
+def api_key_env_name(provider: str) -> str:
+    return PROVIDER_PRESETS[normalize_provider(provider)]["api_key_env"]
 
 
 def _image_mime(path: Path) -> str:
@@ -83,6 +143,8 @@ def _image_mime(path: Path) -> str:
         return "image/png"
     if ext in (".webp",):
         return "image/webp"
+    if ext in (".gif",):
+        return "image/gif"
     return "image/jpeg"
 
 
@@ -125,7 +187,6 @@ def _normalize_fields(
 
 
 def normalize_vision(raw: dict) -> dict:
-    """纽扣视觉标签。"""
     return _normalize_fields(
         raw,
         string_keys=("主色描述", "孔型", "造型", "光泽", "边缘", "视觉描述"),
@@ -134,7 +195,6 @@ def normalize_vision(raw: dict) -> dict:
 
 
 def normalize_fabric_vision(raw: dict) -> dict:
-    """面料视觉标签。"""
     return _normalize_fields(
         raw,
         string_keys=(
@@ -150,19 +210,39 @@ def normalize_fabric_vision(raw: dict) -> dict:
     )
 
 
+def _extract_message_content(data: dict) -> str:
+    choices = data.get("choices") or []
+    if not choices:
+        raise RuntimeError("vision: empty choices")
+    content = choices[0].get("message", {}).get("content", "")
+    if isinstance(content, list):
+        parts = []
+        for p in content:
+            if isinstance(p, dict) and p.get("type") == "text":
+                parts.append(str(p.get("text", "")))
+        content = "\n".join(parts)
+    return str(content)
+
+
 def analyze_image(
     image_path: Path,
     *,
     prompt: str = VISION_PROMPT,
     normalize_fn=normalize_vision,
-    base_url: str = DEFAULT_BASE_URL,
-    model: str = DEFAULT_MODEL,
+    provider: str = "xiaomi",
+    base_url: str | None = None,
+    model: str | None = None,
     api_key: str | None = None,
     timeout: int = 120,
 ) -> dict:
-    api_key = api_key or resolve_api_key()
+    settings = vision_settings({"provider": provider, "base_url": base_url, "model": model})
+    provider = settings["provider"]
+    api_key = api_key or resolve_api_key(provider)
     if not api_key:
-        raise RuntimeError("未配置 XIAOMI_API_KEY（环境变量或 ~/.openclaw/openclaw.json）")
+        env_name = api_key_env_name(provider)
+        raise RuntimeError(
+            f"未配置 {provider} API Key（环境变量 {env_name} 或 ~/.openclaw/openclaw.json）"
+        )
 
     path = Path(image_path)
     if not path.is_file():
@@ -170,21 +250,18 @@ def analyze_image(
 
     b64 = base64.standard_b64encode(path.read_bytes()).decode("ascii")
     mime = _image_mime(path)
-    url = base_url.rstrip("/") + "/chat/completions"
+    image_part = {
+        "type": "image_url",
+        "image_url": {"url": f"data:{mime};base64,{b64}"},
+    }
+    text_part = {"type": "text", "text": prompt}
+    # Kimi 文档示例：图在前；小米无严格要求，统一图在前
+    content = [image_part, text_part]
+
+    url = settings["base_url"] + "/chat/completions"
     payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{mime};base64,{b64}"},
-                    },
-                ],
-            }
-        ],
+        "model": settings["model"],
+        "messages": [{"role": "user", "content": content}],
         "max_tokens": 1200,
         "temperature": 0.2,
     }
@@ -199,19 +276,11 @@ def analyze_image(
     )
     if resp.status_code == 429:
         raise RuntimeError(
-            "xiaomi vision HTTP 429: quota exhausted（配额已用尽，请稍后再试）"
+            f"{provider} vision HTTP 429: quota exhausted（配额已用尽，请稍后再试）"
         )
     if resp.status_code != 200:
-        raise RuntimeError(f"xiaomi vision HTTP {resp.status_code}: {resp.text[:500]}")
-    data = resp.json()
-    choices = data.get("choices") or []
-    if not choices:
-        raise RuntimeError("xiaomi vision: empty choices")
-    content = choices[0].get("message", {}).get("content", "")
-    if isinstance(content, list):
-        parts = [p.get("text", "") for p in content if isinstance(p, dict)]
-        content = "\n".join(parts)
-    return normalize_fn(_parse_json_blob(str(content)))
+        raise RuntimeError(f"{provider} vision HTTP {resp.status_code}: {resp.text[:500]}")
+    return normalize_fn(_parse_json_blob(_extract_message_content(resp.json())))
 
 
 def analyze_fabric_image(image_path: Path, **kwargs) -> dict:

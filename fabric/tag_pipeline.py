@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""面料打标：agent 缓存模式（默认）或 xiaomi API 模式。"""
+"""面料打标：agent 缓存模式（默认）或 xiaomi / kimi 视觉 API 模式。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,13 @@ from urllib.parse import urlparse
 
 from tag_store import TagStore
 from tag_utils import is_quota_error, quota_user_message
-from vision_tagger import analyze_fabric_image, resolve_api_key
+from vision_tagger import (
+    analyze_fabric_image,
+    api_key_env_name,
+    resolve_api_key,
+    uses_vision_api,
+    vision_settings,
+)
 
 try:
     from image_fetch import download_image
@@ -82,8 +88,22 @@ class TagPipeline:
         self.store = store
         self.cfg = cfg
         vision_cfg = cfg.get("vision") or {}
-        self.base_url = vision_cfg.get("base_url", "https://token-plan-cn.xiaomimimo.com/v1")
-        self.model = vision_cfg.get("model", "mimo-v2.5")
+        vp = vision_provider(cfg)
+        if uses_vision_api(vp):
+            vs = vision_settings(vision_cfg)
+            self.provider = vs["provider"]
+            self.base_url = vs["base_url"]
+            self.model = vs["model"]
+            self.request_interval = vs["request_interval_sec"]
+            self.quota_pause_sec = vs["quota_pause_sec"]
+            self.max_enqueue_per_run = vs["max_enqueue_per_run"]
+        else:
+            self.provider = "agent"
+            self.base_url = ""
+            self.model = ""
+            self.request_interval = 3.0
+            self.quota_pause_sec = 600.0
+            self.max_enqueue_per_run = 20
         self._queue: queue.Queue[TagJob | None] = queue.Queue()
         self._seen: set[str] = set()
         self._lock = threading.Lock()
@@ -93,12 +113,9 @@ class TagPipeline:
         self._stop = threading.Event()
         self._last_api_at: float = 0.0
         self._quota_pause_until: float = 0.0
-        self.request_interval = float(vision_cfg.get("request_interval_sec", 3))
-        self.quota_pause_sec = float(vision_cfg.get("quota_pause_sec", 600))
-        self.max_enqueue_per_run = int(vision_cfg.get("max_enqueue_per_run", 20))
 
     def start(self) -> None:
-        if vision_provider(self.cfg) != "xiaomi":
+        if not uses_vision_api(vision_provider(self.cfg)):
             return
         if self._thread and self._thread.is_alive():
             return
@@ -126,8 +143,13 @@ class TagPipeline:
                 "active": active,
                 "last_error": self._last_error,
                 "last_finished_at": self._last_finished_at,
-                "api_configured": bool(resolve_api_key()),
-                "provider": vision_provider(self.cfg),
+                "api_configured": (
+                    bool(resolve_api_key(self.provider))
+                    if uses_vision_api(self.provider)
+                    else None
+                ),
+                "provider": self.provider,
+                "model": self.model,
                 "agent_cache_urls": len(load_agent_cache()),
                 "db_counts": db,
                 "quota_paused": time.time() < self._quota_pause_until,
@@ -145,7 +167,7 @@ class TagPipeline:
         }
 
     def enqueue_rows(self, rows: list[dict], *, limit: int | None = None) -> int:
-        if vision_provider(self.cfg) != "xiaomi":
+        if not uses_vision_api(vision_provider(self.cfg)):
             return apply_agent_cache(self.store, rows)
         cap = limit if limit is not None else self.max_enqueue_per_run
         added = 0
@@ -285,7 +307,10 @@ class TagPipeline:
             try:
                 self._throttle_api()
                 vision = analyze_fabric_image(
-                    path, base_url=self.base_url, model=self.model
+                    path,
+                    provider=self.provider,
+                    base_url=self.base_url,
+                    model=self.model,
                 )
                 self._last_api_at = time.time()
                 return vision
@@ -315,9 +340,10 @@ class TagPipeline:
         try:
             vision = self.store.get_vision(url)
             if not vision:
-                if not resolve_api_key():
+                if not resolve_api_key(self.provider):
                     raise RuntimeError(
-                        "未配置 XIAOMI_API_KEY，请在 /root/marius-material/.env 中设置后重启服务"
+                        f"未配置 {self.provider} API Key，请在 .env 设置 "
+                        f"{api_key_env_name(self.provider)} 后重启服务"
                     )
                 path = self._download(url)
                 if not path:

@@ -74,6 +74,30 @@ def home():
     return send_from_directory(app.static_folder, "index.html")
 
 
+def _vision_health() -> dict:
+    import json
+
+    from vision_tagger import resolve_api_key, uses_vision_api, vision_settings
+
+    out: dict = {}
+    for name, rel in (("button", "button/inventory_config.json"), ("fabric", "fabric/inventory_config.json")):
+        path = ROOT / rel
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+        vision_cfg = cfg.get("vision") or {}
+        provider = (vision_cfg.get("provider") or ("xiaomi" if name == "button" else "agent")).strip().lower()
+        if not uses_vision_api(provider):
+            out[name] = {"provider": provider, "api_configured": None}
+            continue
+        vs = vision_settings(vision_cfg)
+        p = vs["provider"]
+        out[name] = {
+            "provider": p,
+            "model": vs["model"],
+            "api_configured": bool(resolve_api_key(p)),
+        }
+    return out
+
+
 @app.get("/health")
 def health():
     return {
@@ -81,7 +105,7 @@ def health():
         "services": ["button", "fabric"],
         "auth": auth_enabled(),
         "auth_user": __import__("auth").username() if auth_enabled() else None,
-        "xiaomi_api": bool(__import__("vision_tagger").resolve_api_key()),
+        "vision": _vision_health(),
     }
 
 

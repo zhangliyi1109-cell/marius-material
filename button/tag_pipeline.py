@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 from tag_store import TagStore
 from tag_utils import is_quota_error, quota_user_message
-from vision_tagger import analyze_image, resolve_api_key
+from vision_tagger import analyze_image, api_key_env_name, resolve_api_key, vision_settings
 
 try:
     from image_fetch import download_image
@@ -77,8 +77,10 @@ class TagPipeline:
         self.store = store
         self.cfg = cfg
         vision_cfg = cfg.get("vision") or {}
-        self.base_url = vision_cfg.get("base_url", "https://token-plan-cn.xiaomimimo.com/v1")
-        self.model = vision_cfg.get("model", "mimo-v2.5")
+        vs = vision_settings(vision_cfg)
+        self.provider = vs["provider"]
+        self.base_url = vs["base_url"]
+        self.model = vs["model"]
         self._queue: queue.Queue[TagJob | None] = queue.Queue()
         self._seen: set[str] = set()
         self._lock = threading.Lock()
@@ -87,10 +89,9 @@ class TagPipeline:
         self._stop = threading.Event()
         self._last_api_at: float = 0.0
         self._quota_pause_until: float = 0.0
-        v = vision_cfg
-        self.request_interval = float(v.get("request_interval_sec", 3))
-        self.quota_pause_sec = float(v.get("quota_pause_sec", 600))
-        self.max_enqueue_per_run = int(v.get("max_enqueue_per_run", 20))
+        self.request_interval = vs["request_interval_sec"]
+        self.quota_pause_sec = vs["quota_pause_sec"]
+        self.max_enqueue_per_run = vs["max_enqueue_per_run"]
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -124,7 +125,9 @@ class TagPipeline:
                 "active": active,
                 "last_error": s.last_error,
                 "last_finished_at": s.last_finished_at,
-                "api_configured": bool(resolve_api_key()),
+                "api_configured": bool(resolve_api_key(self.provider)),
+                "provider": self.provider,
+                "model": self.model,
                 "db_counts": db,
                 "quota_paused": time.time() < self._quota_pause_until,
                 "quota_resume_at": self._quota_pause_until if self._quota_pause_until else None,
@@ -305,7 +308,12 @@ class TagPipeline:
         for i in range(attempts):
             try:
                 self._throttle_api()
-                vision = analyze_image(path, base_url=self.base_url, model=self.model)
+                vision = analyze_image(
+                    path,
+                    provider=self.provider,
+                    base_url=self.base_url,
+                    model=self.model,
+                )
                 self._last_api_at = time.time()
                 return vision
             except Exception as exc:
@@ -341,9 +349,10 @@ class TagPipeline:
         try:
             vision = self.store.get_vision(url)
             if not vision:
-                if not resolve_api_key():
+                if not resolve_api_key(self.provider):
                     raise RuntimeError(
-                        "未配置 XIAOMI_API_KEY，请在 /root/marius-material/.env 中设置后重启服务"
+                        f"未配置 {self.provider} API Key，请在 .env 设置 "
+                        f"{api_key_env_name(self.provider)} 后重启服务"
                     )
                 path = self._download(url)
                 if not path:

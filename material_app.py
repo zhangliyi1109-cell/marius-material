@@ -19,8 +19,14 @@ load_project_env(ROOT)
 from flask import Flask, jsonify, redirect, request, send_from_directory, session
 
 from auth import auth_enabled, is_logged_in, public_paths, secret_key, verify_credentials
-from button.inventory_server import bp as button_bp
 from fabric.inventory_server import bp as fabric_bp
+
+# 尝试加载 button blueprint（仅在 fabric-only 部署时缺失）
+_button_bp = None
+try:
+    from button.inventory_server import bp as _button_bp  # type: ignore
+except Exception:
+    pass
 
 app = Flask(__name__, static_folder=str(ROOT / "static"))
 app.secret_key = secret_key()
@@ -80,9 +86,19 @@ def _vision_health() -> dict:
     from vision_tagger import resolve_api_key, uses_vision_api, vision_settings
 
     out: dict = {}
+    # fabric-only 部署可能没有 button，依次尝试读取 config
     for name, rel in (("button", "button/inventory_config.json"), ("fabric", "fabric/inventory_config.json")):
+        if _button_bp is None and name == "button":
+            # fabric-only 部署：跳过 button
+            continue
         path = ROOT / rel
-        cfg = json.loads(path.read_text(encoding="utf-8"))
+        if not path.exists():
+            # 该服务未部署
+            continue
+        try:
+            cfg = json.loads(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue
         vision_cfg = cfg.get("vision") or {}
         provider = (vision_cfg.get("provider") or ("xiaomi" if name == "button" else "agent")).strip().lower()
         if not uses_vision_api(provider):
@@ -102,15 +118,16 @@ def _vision_health() -> dict:
 def health():
     return {
         "ok": True,
-        "services": ["button", "fabric"],
+        "services": [s for s in ("button", "fabric") if s == "fabric" or _button_bp is not None],
         "auth": auth_enabled(),
         "auth_user": __import__("auth").username() if auth_enabled() else None,
         "vision": _vision_health(),
     }
 
 
-app.register_blueprint(button_bp, url_prefix="/button")
 app.register_blueprint(fabric_bp, url_prefix="/fabric")
+if _button_bp is not None:
+    app.register_blueprint(_button_bp, url_prefix="/button")
 
 
 if __name__ == "__main__":
@@ -121,7 +138,7 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="0.0.0.0")
     args = parser.parse_args()
     print(f"物料看板: http://{args.host}:{args.port}/")
-    print(f"  纽扣 → /button")
+    print(f"  纽扣 → /button" if _button_bp is not None else "  纽扣 → 未部署（fabric-only 模式）")
     print(f"  面料 → /fabric")
     if auth_enabled():
         print("  登录已启用 → /login")

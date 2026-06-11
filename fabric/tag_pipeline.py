@@ -25,6 +25,11 @@ from vision_tagger import (
 )
 
 try:
+    from tag_normalizer import normalize_tags_for_category
+except ImportError:
+    from shared.tag_normalizer import normalize_tags_for_category
+
+try:
     from image_fetch import download_image
 except ImportError:
     from shared.image_fetch import download_image
@@ -202,7 +207,7 @@ class TagPipeline:
                     self._seen.add(detail)
                 self.store.save_sku_tags(
                     detail,
-                    mod.parse_text_tags(item),
+                    normalize_tags_for_category("fabric", mod.parse_text_tags(item)),
                     image_url=url,
                     status="pending",
                     has_vision=False,
@@ -227,7 +232,7 @@ class TagPipeline:
                 self._seen.add(detail)
             self.store.save_sku_tags(
                 detail,
-                mod.parse_text_tags(item),
+                normalize_tags_for_category("fabric", mod.parse_text_tags(item)),
                 image_url=url,
                 status="pending",
                 has_vision=False,
@@ -271,7 +276,7 @@ class TagPipeline:
                 self._seen.discard(detail)
             self.store.save_sku_tags(
                 detail,
-                mod.parse_text_tags(item),
+                normalize_tags_for_category("fabric", mod.parse_text_tags(item)),
                 image_url=url,
                 status="pending",
                 has_vision=False,
@@ -472,7 +477,7 @@ def apply_agent_cache(store: TagStore, rows: list[dict]) -> int:
         else:
             store.save_sku_tags(
                 detail,
-                mod.parse_text_tags(item),
+                normalize_tags_for_category("fabric", mod.parse_text_tags(item)),
                 image_url=url,
                 status="pending",
                 has_vision=False,

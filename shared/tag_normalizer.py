@@ -129,3 +129,53 @@ def get_unknown_tags(vocab: dict, tags: dict, all_keys: tuple[str, ...]) -> dict
         if missing:
             unknowns[key] = missing
     return unknowns
+
+
+# ──────────────────────────────
+# 强制入库标准化（Iris 2026-06-11 要求）
+# ──────────────────────────────
+
+_BUTTON_SINGLE = ("孔型", "造型", "光泽", "边缘")
+_BUTTON_LIST = ("装饰元素", "风格", "适用场景")
+
+_FABRIC_SINGLE = ("织法组织", "表面质感", "花纹图案", "厚薄感", "色系", "克重档位")
+_FABRIC_LIST = ("风格", "适用场景")
+
+
+def normalize_tags_for_category(category: str, tags: dict) -> dict:
+    """按品类强制标准化标签字典，返回新字典。写入 DB 前必须调用。
+
+    若 tag_normalizer 不可用（导入失败）或标签不在词库，
+    按降级策略返回原始标签（不打断入库流程）。
+    """
+    if not tags or not isinstance(tags, dict):
+        return tags
+    try:
+        vocab = load_vocabulary(category)
+    except Exception:
+        return tags
+    if not vocab:
+        return tags
+    if category == "button":
+        return normalize_tags(vocab, tags, single_keys=_BUTTON_SINGLE, list_keys=_BUTTON_LIST)
+    elif category == "fabric":
+        return normalize_tags(vocab, tags, single_keys=_FABRIC_SINGLE, list_keys=_FABRIC_LIST)
+    return tags
+
+
+def normalize_tags_and_report(category: str, tags: dict) -> tuple[dict, dict[str, list[str]]]:
+    """标准化并返回“被丢弃/被替换”的原始标签，用于审计。"""
+    normalized = normalize_tags_for_category(category, tags)
+    if category == "button":
+        dropped = get_unknown_tags(
+            load_vocabulary(category), tags,
+            all_keys=_BUTTON_SINGLE + _BUTTON_LIST + ("主色描述", "颜色")
+        )
+    elif category == "fabric":
+        dropped = get_unknown_tags(
+            load_vocabulary(category), tags,
+            all_keys=_FABRIC_SINGLE + _FABRIC_LIST + ("主色描述", "颜色")
+        )
+    else:
+        dropped = {}
+    return normalized, dropped

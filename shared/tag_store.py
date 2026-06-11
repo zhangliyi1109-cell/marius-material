@@ -47,12 +47,12 @@ class TagStore:
     def close(self) -> None:
         self._conn.close()
 
-    def import_legacy_if_empty(self, root: Path) -> dict[str, int]:
-        """从 .button_visual_cache.json 与 纽扣库存清单.json 迁移。"""
+    def import_legacy_if_empty(self, root: Path, category: str = "button") -> dict[str, int]:
+        """从旧缓存与 JSON 迁移，入库前强制标准化。"""
         with self._lock:
-            return self._import_legacy_if_empty(root)
+            return self._import_legacy_if_empty(root, category)
 
-    def _import_legacy_if_empty(self, root: Path) -> dict[str, int]:
+    def _import_legacy_if_empty(self, root: Path, category: str = "button") -> dict[str, int]:
         stats = {"images": 0, "skus": 0}
         img_n = self._conn.execute("SELECT COUNT(*) FROM image_vision").fetchone()[0]
         sku_n = self._conn.execute("SELECT COUNT(*) FROM sku_tags").fetchone()[0]
@@ -77,6 +77,13 @@ class TagStore:
                 )
                 stats["images"] += 1
 
+        # ── 强制标准化：2026-06-11 Iris 要求 ──
+        try:
+            from tag_normalizer import normalize_tags_for_category
+        except ImportError:
+            from shared.tag_normalizer import normalize_tags_for_category
+        # ─────────────────────────────────────
+
         json_path = root / "seed_inventory.json"
         if sku_n == 0 and json_path.exists():
             items = json.loads(json_path.read_text(encoding="utf-8"))
@@ -85,6 +92,8 @@ class TagStore:
                 tags = item.get("视觉标签")
                 if not detail or not isinstance(tags, dict) or not tags:
                     continue
+                # 强制标准化入库
+                tags = normalize_tags_for_category(category, tags)
                 url = (item.get("主图") or "").strip()
                 has_v = 1 if url and url in cache else int(bool(tags.get("视觉描述")))
                 self._conn.execute(

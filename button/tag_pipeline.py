@@ -18,6 +18,11 @@ from tag_utils import is_api_key_error, is_quota_error, quota_user_message
 from vision_tagger import analyze_image, api_key_env_name, resolve_api_key, vision_settings
 
 try:
+    from tag_normalizer import normalize_tags_for_category
+except ImportError:
+    from shared.tag_normalizer import normalize_tags_for_category
+
+try:
     from image_fetch import download_image
 except ImportError:
     from shared.image_fetch import download_image
@@ -181,9 +186,10 @@ class TagPipeline:
                     if detail in self._seen:
                         continue
                     self._seen.add(detail)
+                tags = normalize_tags_for_category("button", mod.parse_text_tags(item_for_check))
                 self.store.save_sku_tags(
                     detail,
-                    mod.parse_text_tags(item_for_check),
+                    tags,
                     image_url=url,
                     status="pending",
                     has_vision=False,
@@ -210,7 +216,7 @@ class TagPipeline:
                 self._seen.add(detail)
             self.store.save_sku_tags(
                 detail,
-                mod.parse_text_tags(item_for_check),
+                normalize_tags_for_category("button", mod.parse_text_tags(item_for_check)),
                 image_url=url,
                 status="pending",
                 has_vision=False,
@@ -264,7 +270,7 @@ class TagPipeline:
                 self._seen.discard(detail)
             self.store.save_sku_tags(
                 detail,
-                mod.parse_text_tags(item),
+                normalize_tags_for_category("button", mod.parse_text_tags(item)),
                 image_url=url,
                 status="pending",
                 has_vision=False,
@@ -470,7 +476,7 @@ def get_store(cfg: dict) -> TagStore:
     if _store is None:
         db = ROOT / cfg.get("tag_db", "button_tags.db")
         _store = TagStore(db)
-        _store.import_legacy_if_empty(ROOT)
+        _store.import_legacy_if_empty(ROOT, category="button")
     return _store
 
 

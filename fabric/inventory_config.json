@@ -3,7 +3,7 @@
   "dataset_name": "物料库存数据",
   "min_stock_default": 300,
   "material_category": "面料",
-  "cache_seconds": 120,
+  "cache_seconds": 30,
   "stock_unit": "m",
   "auto_tag_on_fetch": true,
   "tag_db": "fabric_tags.db",

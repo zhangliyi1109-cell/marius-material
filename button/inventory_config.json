@@ -4,7 +4,7 @@
   "min_stock_default": 100,
   "material_kinds": ["钮扣", "工字扣", "四合扣", "金属部件"],
   "visual_tags_json": "seed_inventory.json",
-  "cache_seconds": 120,
+  "cache_seconds": 30,
   "auto_tag_on_fetch": true,
   "tag_db": "button_tags.db",
   "vision": {

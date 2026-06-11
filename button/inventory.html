@@ -2,7 +2,11 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <meta name="version" content="2026-06-11-v2" />
   <title>MARIUS 纽扣实时库存 · 设计师选扣</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
@@ -432,25 +436,28 @@
     }
 
     async function pollTagJobs() {
-      try {
-        const res = await fetch(BASE + '/api/tag-jobs');
-        const jobs = await res.json();
-        updateTagStatusLine(jobs);
-        const active = (jobs.queue_size || 0) + (jobs.running || 0) +
-          ((jobs.db_counts && jobs.db_counts.pending) || 0);
-        if (active > 0) {
-          await loadItems();
-        } else if (state.tagPoll && !state.items.some(i =>
-          i.tag_status === 'pending' || i.tag_status === 'running' || i.tag_status === 'failed')) {
-          clearInterval(state.tagPoll);
-          state.tagPoll = null;
-        }
-      } catch (_) {}
+      // 2026-06-11 Iris：不需要自动轮询刷新，已禁用
+      // 如果未来需要实时看打标进度，可恢复下面的逻辑
+      // try {
+      //   const res = await fetch(BASE + '/api/tag-jobs');
+      //   const jobs = await res.json();
+      //   updateTagStatusLine(jobs);
+      //   const active = (jobs.queue_size || 0) + (jobs.running || 0) +
+      //     ((jobs.db_counts && jobs.db_counts.pending) || 0);
+      //   if (active > 0) {
+      //     await loadItems();
+      //   } else if (state.tagPoll && !state.items.some(i =>
+      //     i.tag_status === 'pending' || i.tag_status === 'running' || i.tag_status === 'failed')) {
+      //     clearInterval(state.tagPoll);
+      //     state.tagPoll = null;
+      //   }
+      // } catch (_) {}
     }
 
     function startTagPolling() {
-      if (state.tagPoll) return;
-      state.tagPoll = setInterval(pollTagJobs, 5000);
+      // 2026-06-11 Iris：不需要自动轮询刷新
+      // if (state.tagPoll) return;
+      // state.tagPoll = setInterval(pollTagJobs, 5000);
     }
 
     function renderVariants(item) {

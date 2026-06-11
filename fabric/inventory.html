@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta name="version" content="2026-06-11-v2" />
   <title>MARIUS 面料实时库存</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
@@ -388,14 +392,13 @@
     }
 
     function startTagPolling() {
-      if (state.tagPoll) return;
-      state.tagPoll = setInterval(async () => {
-        const jobs = await (await fetch(BASE + '/api/tag-jobs')).json();
-        const active = (jobs.active || 0) > 0;
-        const hasFailed = state.items.some(i => i.tag_status === 'failed');
-        if (active || hasFailed) await loadItems();
-        else { clearInterval(state.tagPoll); state.tagPoll = null; }
-      }, 5000);
+      // 2026-06-11 Iris：不需要自动轮询刷新
+      // 如果未来需要实时看打标进度，可在这里恢复
+      // if (state.tagPoll) return;
+      // state.tagPoll = setInterval(async () => { ... }, 5000);
+    }
+    function stopTagPolling() {
+      if (state.tagPoll) { clearInterval(state.tagPoll); state.tagPoll = null; }
     }
 
     function buildQuery(refresh) {

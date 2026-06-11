@@ -329,12 +329,28 @@ def _aggregate_tag_status(items: list[dict]) -> str:
     return min(statuses, key=lambda s: order.get(s, 1))
 
 
+def _normalize_style(value: str) -> set[str]:
+    """将预设词库的“基础款/功能/装饰”等翻成实际打标可能用的同义词。
+    返回集合中的任一项都可与 row 中的“风格”匹配。
+    空集合走原有精确匹配。
+    """
+    if not value:
+        return set()
+    mapping = {
+        "基础款": {"基础", "基础款", "百搭", "通用模板"},
+        "功能": {"功能", "功能性"},
+        "装饰": {"装饰", "装饰性"},
+    }
+    return mapping.get(value, {value})
+
+
 def filter_rows(rows: list[dict]) -> list[dict]:
     q = (request.args.get("q") or "").strip().lower()
     min_stock = float(request.args.get("min_stock") or 0)
     btn_type = (request.args.get("type") or "").strip()
     hole = (request.args.get("hole") or "").strip()
     style = (request.args.get("style") or "").strip()
+    style_aliases = _normalize_style(style)
 
     out = []
     for row in rows:
@@ -345,7 +361,7 @@ def filter_rows(rows: list[dict]) -> list[dict]:
         tags = row.get("视觉标签") or {}
         if hole and tags.get("孔型") != hole:
             continue
-        if style and style not in (tags.get("风格") or []):
+        if style and not (set(tags.get("风格") or []) & style_aliases):
             continue
         if q:
             blob = json.dumps(row, ensure_ascii=False).lower()

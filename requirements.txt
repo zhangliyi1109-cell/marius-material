@@ -1,3 +1,24 @@
+# material-inventory 服务依赖
+# 安装：pip install -r requirements.txt
+
+# Web 框架
 flask>=3.0
+gunicorn>=22.0          # 生产环境 WSGI
+
+# HTTP / BI 数据
 requests>=2.31
-gunicorn>=22.0
+
+# 可选：BI 观远平台 CLI（带 token 缓存）
+# guancli 通常通过 npm 全局安装：npm i -g @guandata/cli
+# 或 pip：pip install guancli
+# guancli>=0.1.0
+
+# 可选：kimi 视觉打标（API 模式）
+# openai>=1.0   # kimi 走 OpenAI 兼容接口
+# 或 moonshot SDK：pip install openai
+
+# 可选：视觉标签预标注缓存（visual_cache.json）— 不需要
+# 缓存文件本身走 git 同步
+
+# 可选：chromadb（不依赖，本项目在 RAG 在外部 ~/.openclaw/）
+# chromadb>=0.4

@@ -167,8 +167,9 @@ class TagPipeline:
         }
 
     def enqueue_rows(self, rows: list[dict], *, limit: int | None = None) -> int:
+        hydrated = apply_agent_cache(self.store, rows)
         if not uses_vision_api(vision_provider(self.cfg)):
-            return apply_agent_cache(self.store, rows)
+            return hydrated
         cap = limit if limit is not None else self.max_enqueue_per_run
         added = 0
         mod = extract_mod()
@@ -414,7 +415,16 @@ def get_store(cfg: dict) -> TagStore:
     if _store is None:
         db = ROOT / cfg.get("tag_db", "fabric_tags.db")
         _store = TagStore(db)
+        _seed_image_vision_from_json(_store)
     return _store
+
+
+def _seed_image_vision_from_json(store: TagStore) -> None:
+    """启动时把 visual_cache.json 写入 image_vision（与服务器 .db 等效）。"""
+    cache = load_agent_cache()
+    for url, vision in cache.items():
+        if url and isinstance(vision, dict):
+            store.save_vision(url.strip(), vision, status="done")
 
 
 def apply_agent_cache(store: TagStore, rows: list[dict]) -> int:

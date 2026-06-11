@@ -12,7 +12,7 @@ from typing import Any
 
 from flask import Blueprint, jsonify, request, send_from_directory
 
-from tag_pipeline import get_pipeline, get_store
+from tag_pipeline import apply_agent_cache, get_pipeline, get_store
 
 ROOT = Path(__file__).parent
 CONFIG_PATH = ROOT / "inventory_config.json"
@@ -145,6 +145,24 @@ def normalize_row(row: dict, visual_index: dict[str, dict], cfg: dict) -> dict:
     }
 
 
+def _fabric_rows_for_cache(raw: list[dict]) -> list[dict]:
+    rows = []
+    for r in raw:
+        spec = parse_color_spec(r.get("物料颜色规格名称") or "")
+        rows.append(
+            {
+                "物料明细编码": (r.get("物料明细编码") or "").strip(),
+                "物料名称": r.get("物料名称", ""),
+                "物料编码": r.get("物料编码", ""),
+                "颜色规格": spec["颜色规格"],
+                "颜色": spec["颜色"],
+                "物料种类": r.get("物料种类", ""),
+                "主图": (r.get("主图") or "").strip(),
+            }
+        )
+    return rows
+
+
 def get_rows(force: bool = False) -> tuple[list[dict], dict]:
     cfg = load_config()
     bootstrap_tagging(cfg)
@@ -153,9 +171,10 @@ def get_rows(force: bool = False) -> tuple[list[dict], dict]:
     if not force and _cache["rows"] and now - _cache["fetched_at"] < ttl:
         return _cache["rows"], {"cached": True, "fetched_at": _cache["fetched_at"]}
 
-    visual_index = load_visual_index(cfg)
     try:
         raw = fetch_bi_rows(cfg)
+        apply_agent_cache(get_store(cfg), _fabric_rows_for_cache(raw))
+        visual_index = load_visual_index(cfg)
         rows = [normalize_row(r, visual_index, cfg) for r in raw]
         rows.sort(key=lambda x: x["可配库存"], reverse=True)
         _cache["rows"] = rows

@@ -6,11 +6,22 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
 
 from flask import Blueprint, jsonify, request, send_from_directory
+
+# 2026-06-11 修复 gunicorn 启动 ModuleNotFoundError
+# 原因：gunicorn 启动时 cwd 是仓库根，sys.path 不含 button/
+# 导致 from tag_pipeline import ... 失败，整个 blueprint 加载被吞掉
+_BUTTON_DIR = Path(__file__).resolve().parent
+if str(_BUTTON_DIR) not in sys.path:
+    sys.path.insert(0, str(_BUTTON_DIR))
+_SHARED_DIR = _BUTTON_DIR.parent / "shared"
+if str(_SHARED_DIR) not in sys.path:
+    sys.path.insert(0, str(_SHARED_DIR))
 
 from tag_pipeline import get_pipeline, get_store
 

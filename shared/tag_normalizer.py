@@ -41,7 +41,14 @@ def _try_parse_python_list(value: str) -> str:
 
 
 def _normalize_single(value: str, dim_vocab: dict) -> str:
-    """标准化单个标签值。"""
+    """标准化单个标签值。
+
+    原则：
+    - 空值 → 保留空
+    - 在 synonyms 里 → 映射到预设值
+    - 在 preset 里 → 保留
+    - **不在 preset 也不在 synonyms → 返回空字符串**（被制除的标签丢失，不进预设池）
+    """
     if not value:
         return value
     value = str(value).strip()
@@ -50,13 +57,16 @@ def _normalize_single(value: str, dim_vocab: dict) -> str:
     synonyms = dim_vocab.get("synonyms", {})
     # 先查同义词映射
     if value in synonyms:
-        return synonyms[value]
+        mapped = synonyms[value]
+        # mapped 也必须在 preset 里
+        if mapped in set(dim_vocab.get("values", [])):
+            return mapped
     # 如果已在预设值中，直接返回
     preset = set(dim_vocab.get("values", []))
     if value in preset:
         return value
-    # 不在预设中，返回原值（标记为候选新增）
-    return value
+    # 不在预设中 → 清空（被 Iris 拿掉的标签彻底丢失，不进“候选新增”）
+    return ""
 
 
 def _normalize_list(values: list, dim_vocab: dict) -> list:

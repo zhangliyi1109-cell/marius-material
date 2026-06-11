@@ -286,10 +286,6 @@
         <div class="chips" id="styleChips"></div>
       </div>
       <div class="filter-row">
-        <label>场合</label>
-        <div class="chips" id="sceneChips"></div>
-      </div>
-      <div class="filter-row">
         <label>克重</label>
         <div class="chips" id="weightChips"></div>
       </div>
@@ -412,7 +408,7 @@
       if (state.pattern) p.set('pattern', state.pattern);
       if (state.weave) p.set('weave', state.weave);
       if (state.style) p.set('style', state.style);
-      if (state.scene) p.set('scene', state.scene);      if (state.weight) p.set('weight', state.weight);
+      if (state.weight) p.set('weight', state.weight);
       p.set('view', document.getElementById('viewMode').value);
       if (refresh) p.set('refresh', '1');
       return p.toString();
@@ -504,7 +500,7 @@
       renderChips(document.getElementById('patternChips'), data.patterns || [], 'pattern', '全部');
       renderChips(document.getElementById('weaveChips'), data.weaves || [], 'weave', '全部');
       renderChips(document.getElementById('styleChips'), data.styles || [], 'style', '全部');
-      renderChips(document.getElementById('sceneChips'), data.scenes || [], 'scene', '全部'); // 已废弃 chip 元素不存在
+      // 已废弃 chip 元素不存在
       renderChips(document.getElementById('weightChips'), data.weight_ranges || [], 'weight', '全部');
       const tj = data.tag_jobs || {};
       if ((tj.active || 0) > 0) startTagPolling();

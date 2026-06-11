@@ -471,8 +471,8 @@ def api_meta():
     patterns = list(vocab.get("花纹图案", {}).get("values", []))
     weaves = list(vocab.get("织法组织", {}).get("values", []))
     styles = list(vocab.get("风格", {}).get("values", []))
-    scenes = list(vocab.get("适用场景", {}).get("values", []))
     weight_ranges = list(vocab.get("克重档位", {}).get("values", []))
+    # 适用场景 已移除（2026-06-11 Iris：本质是品类，不是面料属性）
 
     # 实际克重档位覆盖（用于显示哪个有数据，不影响预设）
     actual_weights: set[str] = set()
@@ -491,9 +491,8 @@ def api_meta():
             "patterns": patterns,
             "weaves": weaves,
             "styles": styles,
-            "scenes": scenes,
             "weight_ranges": weight_ranges,
-            "actual_weights": sorted(actual_weights),  # 调试用
+            "actual_weights": sorted(actual_weights),
             "unit": cfg.get("stock_unit", "m"),
             "tag_jobs": get_pipeline(cfg).status(),
             **meta,

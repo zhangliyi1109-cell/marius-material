@@ -234,7 +234,7 @@
     <div class="header-inner">
       <div>
         <h1>MARIUS 面料实时库存</h1>
-        <p class="subtitle">观远 BI · ≥300m · 存量已打标 · 新增自动走小米
+        <p class="subtitle">观远 BI · ≥300m · 自动视觉打标 · Kimi
           <a class="nav-link" href="/button/">纽扣看板 →</a>
         </p>
       </div>
@@ -281,6 +281,19 @@
         <label>织法</label>
         <div class="chips" id="weaveChips"></div>
       </div>
+      <div class="filter-row">
+        <label>风格</label>
+        <div class="chips" id="styleChips"></div>
+      </div>
+      <div class="filter-row">
+        <label>场合</label>
+        <div class="chips" id="sceneChips"></div>
+      </div>
+      <div class="filter-row">
+        <label>克重</label>
+        <div class="chips" id="weightChips"></div>
+      </div>
+      <!-- 场景 chip 已移除（2026-06-11 Iris：适用场景是品类，不是面料属性）-->
     </section>
     <div class="stats" id="statsBar"></div>
     <div id="content" class="loading">正在从 BI 拉取面料库存…</div>
@@ -288,7 +301,7 @@
 
   <script>
     const BASE = '/fabric';
-    const state = { kind: '', warehouse: '', pattern: '', weave: '', unit: 'm', tagPoll: null, items: [] };
+    const state = { kind: '', warehouse: '', pattern: '', weave: '', style: '', weight: '', unit: 'm', tagPoll: null, items: [] };
 
     function fmtTime(ts) {
       if (!ts) return '—';
@@ -369,7 +382,7 @@
     }
 
     function updateChips() {
-      const keys = { kindChips: 'kind', whChips: 'warehouse', patternChips: 'pattern', weaveChips: 'weave' };
+      const keys = { kindChips: 'kind', whChips: 'warehouse', patternChips: 'pattern', weaveChips: 'weave', styleChips: 'style', weightChips: 'weight' };
       Object.entries(keys).forEach(([id, key]) => {
         document.querySelectorAll('#' + id + ' .chip').forEach((el, i) => {
           if (i === 0) el.classList.toggle('active', state[key] === '');
@@ -398,6 +411,8 @@
       if (state.warehouse) p.set('warehouse', state.warehouse);
       if (state.pattern) p.set('pattern', state.pattern);
       if (state.weave) p.set('weave', state.weave);
+      if (state.style) p.set('style', state.style);
+      if (state.scene) p.set('scene', state.scene);      if (state.weight) p.set('weight', state.weight);
       p.set('view', document.getElementById('viewMode').value);
       if (refresh) p.set('refresh', '1');
       return p.toString();
@@ -452,6 +467,12 @@
         return `<span class="${cls}">${k}</span>`;
       }).join('');
       const extra = [tags.织法组织, tags.花纹图案, tags.表面质感].filter(Boolean).join(' · ');
+      // 风格标签（场景已移除）
+      const styleTags = (tags.风格 || []).slice(0, 4);
+      const styleSceneHtml = styleTags.map(s => `<span class="tag" style="background:#f0e6f6;color:#5b3a6b">${s}</span>`).join('');
+      // 克重
+      const weightInfo = item.克重 ? `<span style="font-weight:600;color:var(--accent)">${item.克重}g/m²</span>` : '';
+      const compInfo = item.成分 ? ` · ${item.成分}` : '';
       return `
         <article class="${cardCls}">
           <div class="card-img-wrap">
@@ -465,9 +486,10 @@
             <div class="card-meta">${metaLine}</div>
             <div class="card-meta">${item.物料编码 || ''} · ${item.仓库名称 || ''}</div>
             <div class="card-meta">${item.供应商简称 ? '供应商 ' + item.供应商简称 : ''}${item.年份名称 ? ' · ' + item.年份名称 : ''}</div>
+            ${weightInfo || compInfo ? `<div class="card-meta">${weightInfo}${compInfo}</div>` : ''}
             ${extra ? `<div class="card-meta">${extra}</div>` : ''}
             ${desc ? `<div class="card-desc">${desc}</div>` : ''}
-            <div class="tag-list">${tagHtml}</div>
+            <div class="tag-list">${styleSceneHtml}${tagHtml}</div>
             ${renderVariants(item)}
           </div>
         </article>`;
@@ -481,6 +503,9 @@
       renderChips(document.getElementById('whChips'), (data.warehouses || []).slice(0, 24), 'warehouse', '全部');
       renderChips(document.getElementById('patternChips'), data.patterns || [], 'pattern', '全部');
       renderChips(document.getElementById('weaveChips'), data.weaves || [], 'weave', '全部');
+      renderChips(document.getElementById('styleChips'), data.styles || [], 'style', '全部');
+      renderChips(document.getElementById('sceneChips'), data.scenes || [], 'scene', '全部'); // 已废弃 chip 元素不存在
+      renderChips(document.getElementById('weightChips'), data.weight_ranges || [], 'weight', '全部');
       const tj = data.tag_jobs || {};
       if ((tj.active || 0) > 0) startTagPolling();
     }

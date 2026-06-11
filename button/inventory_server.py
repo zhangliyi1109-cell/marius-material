@@ -426,28 +426,65 @@ def api_tag_jobs_retry():
 
 @bp.get("/api/meta")
 def api_meta():
+    """
+    返回筛选 chip 用的所有标签维度。
+
+    关键：styles / holes / 实际用到的场景 全部从**预设词库**取，
+    不是从实际打标数据取。这样：
+    - 任何 chip 选项都是稳定的（用户可预期）
+    - 防止实际数据被污染后污染 chip
+    """
     cfg = load_config()
     bootstrap_tagging(cfg)
     rows, meta = get_merged_rows()
+
+    # 加载预设词库
+    import sys as _sys
+    _shared = str(ROOT.parent / "shared")
+    if _shared not in _sys.path:
+        _sys.path.insert(0, _shared)
+    try:
+        from tag_normalizer import load_vocabulary
+        vocab = load_vocabulary("button")
+    except Exception:
+        vocab = {}
+
+    # 实际数据中已用的值（参考）
     types = sorted({r.get("纽扣类型", "") for r in rows if r.get("纽扣类型")})
-    holes = sorted(
-        {
-            (r.get("视觉标签") or {}).get("孔型", "")
-            for r in rows
-            if (r.get("视觉标签") or {}).get("孔型")
-        }
-    )
-    styles: set[str] = set()
+
+    # 从预设词库取（稳定顺序）
+    holes = list(vocab.get("孔型", {}).get("values", []))
+    styles = list(vocab.get("风格", {}).get("values", []))
+    scenes = list(vocab.get("适用场景", {}).get("values", []))
+    glosses = list(vocab.get("光泽", {}).get("values", []))
+    shapes = list(vocab.get("造型", {}).get("values", []))
+    edges = list(vocab.get("边缘", {}).get("values", []))
+    ornaments = list(vocab.get("装饰元素", {}).get("values", []))
+
+    # 实际用到的（调试用，不影响 chip）
+    actual_holes: set[str] = set()
+    actual_styles: set[str] = set()
     for r in rows:
-        for s in (r.get("视觉标签") or {}).get("风格") or []:
-            styles.add(s)
+        t = r.get("视觉标签") or {}
+        if t.get("孔型"):
+            actual_holes.add(t["孔型"])
+        for s in t.get("风格") or []:
+            actual_styles.add(s)
+
     tag_status = get_pipeline(cfg).status()
     return jsonify(
         {
             "config": cfg,
             "types": types,
             "holes": holes,
-            "styles": sorted(styles),
+            "styles": styles,
+            "scenes": scenes,
+            "glosses": glosses,
+            "shapes": shapes,
+            "edges": edges,
+            "ornaments": ornaments,
+            "actual_holes": sorted(actual_holes),
+            "actual_styles": sorted(actual_styles),
             "tag_jobs": tag_status,
             **meta,
         }

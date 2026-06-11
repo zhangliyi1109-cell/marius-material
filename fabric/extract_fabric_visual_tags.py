@@ -149,7 +149,7 @@ def parse_text_tags(item: dict) -> dict:
 
 def merge_tags(text_tags: dict, vision_tags: dict | None) -> dict:
     if not vision_tags:
-        return text_tags
+        return _normalize_fabric_tags(text_tags)
     out = dict(text_tags)
     for key in (
         "主色描述",
@@ -166,4 +166,23 @@ def merge_tags(text_tags: dict, vision_tags: dict | None) -> dict:
         out[key] = merged
     if vision_tags.get("视觉描述"):
         out["视觉描述"] = vision_tags["视觉描述"]
-    return out
+    return _normalize_fabric_tags(out)
+
+
+def _normalize_fabric_tags(tags: dict) -> dict:
+    """将标签标准化到预设词库。"""
+    import sys
+    from pathlib import Path
+    _shared = Path(__file__).resolve().parent.parent / "shared"
+    if str(_shared) not in sys.path:
+        sys.path.insert(0, str(_shared))
+    try:
+        from tag_normalizer import load_vocabulary, normalize_tags
+        vocab = load_vocabulary("fabric")
+        return normalize_tags(
+            vocab, tags,
+            single_keys=("织法组织", "表面质感", "花纹图案", "厚薄感", "色系", "克重档位"),
+            list_keys=("风格", "适用场景"),
+        )
+    except Exception:
+        return tags

@@ -141,6 +141,10 @@ def normalize_row(row: dict, visual_index: dict[str, dict], cfg: dict) -> dict:
         "年份名称": row.get("年份名称", ""),
         "last_update_time": row.get("last_update_time", ""),
         "视觉标签": visual_index.get(detail, {}),
+        "克重": "",
+        "克重档位": "",
+        "成分": "",
+        "门幅_bi": "",
         **tag_fields_for_row(cfg, detail),
     }
 
@@ -176,6 +180,10 @@ def get_rows(force: bool = False) -> tuple[list[dict], dict]:
         apply_agent_cache(get_store(cfg), _fabric_rows_for_cache(raw))
         visual_index = load_visual_index(cfg)
         rows = [normalize_row(r, visual_index, cfg) for r in raw]
+
+        # 克重数据：后台异步加载，不阻塞页面刷新
+        _inject_fabric_weight(rows)
+
         rows.sort(key=lambda x: x["可配库存"], reverse=True)
         _cache["rows"] = rows
         _cache["fetched_at"] = now
@@ -195,11 +203,85 @@ def get_rows(force: bool = False) -> tuple[list[dict], dict]:
         raise
 
 
+_weight_cache: dict[str, dict[str, Any]] = {}
+_weight_fetching = False
+
+
+def _inject_fabric_weight(rows: list[dict]) -> None:
+    """从 BI D1 数据集获取克重并注入到每行（后台异步，不阻塞）。"""
+    global _weight_cache, _weight_fetching
+    import sys
+    _shared = str(ROOT.parent / "shared")
+    if _shared not in sys.path:
+        sys.path.insert(0, _shared)
+
+    # 先注入已有缓存
+    for row in rows:
+        code = (row.get("物料编码") or "").strip()
+        info = _weight_cache.get(code, {})
+        weight = info.get("weight")
+        row["克重"] = weight if weight else ""
+        row["克重档位"] = _classify_weight(weight) if weight else ""
+        row["成分"] = info.get("composition", "")
+        row["门幅_bi"] = info.get("width", "")
+
+    # 收集未缓存的编码
+    needed: list[str] = []
+    for row in rows:
+        code = (row.get("物料编码") or "").strip()
+        if code and code not in _weight_cache:
+            needed.append(code)
+
+    if not needed or _weight_fetching:
+        return
+
+    # 后台线程批量拉取
+    _weight_fetching = True
+    import threading
+    def _fetch():
+        global _weight_cache, _weight_fetching
+        try:
+            from fabric_weight_fetcher import fetch_weight_batch  # noqa
+            new_data = fetch_weight_batch(list(dict.fromkeys(needed)))
+            _weight_cache.update(new_data)
+        except Exception:
+            pass
+        finally:
+            _weight_fetching = False
+    threading.Thread(target=_fetch, daemon=True).start()
+
+
+def _classify_weight(weight_g: float | None) -> str:
+    if weight_g is None:
+        return ""
+    try:
+        w = float(weight_g)
+    except (TypeError, ValueError):
+        return ""
+    if w <= 0:
+        return ""
+    if w < 150:
+        return "超轻(<150g)"
+    if w < 250:
+        return "轻量(150-250g)"
+    if w < 400:
+        return "中量(250-400g)"
+    if w < 600:
+        return "重量(400-600g)"
+    return "超重(>600g)"
+
+
 def apply_visual_tags(rows: list[dict], cfg: dict) -> None:
     visual_index = load_visual_index(cfg)
     for row in rows:
         detail = row.get("物料明细编码", "")
-        row["视觉标签"] = visual_index.get(detail, {})
+        tags = visual_index.get(detail, {})
+        row["视觉标签"] = tags
+        # 同步克重档位到行级（UI chip 用）
+        if tags.get("克重档位"):
+            row["克重档位"] = tags["克重档位"]
+        if tags.get("克重数值") is not None:
+            row["克重"] = tags["克重数值"]
         row.update(tag_fields_for_row(cfg, detail))
 
 
@@ -254,6 +336,9 @@ def filter_rows(rows: list[dict]) -> list[dict]:
     warehouse = (request.args.get("warehouse") or "").strip()
     pattern = (request.args.get("pattern") or "").strip()
     weave = (request.args.get("weave") or "").strip()
+    style = (request.args.get("style") or "").strip()
+    scene = (request.args.get("scene") or "").strip()
+    weight_range = (request.args.get("weight") or "").strip()
 
     out = []
     for row in rows:
@@ -267,6 +352,12 @@ def filter_rows(rows: list[dict]) -> list[dict]:
         if pattern and tags.get("花纹图案") != pattern:
             continue
         if weave and tags.get("织法组织") != weave:
+            continue
+        if style and style not in (tags.get("风格") or []):
+            continue
+        if scene and scene not in (tags.get("适用场景") or []):
+            continue
+        if weight_range and row.get("克重档位") != weight_range:
             continue
         if q:
             blob = json.dumps(row, ensure_ascii=False).lower()
@@ -348,26 +439,61 @@ def api_tag_jobs_retry():
 
 @bp.get("/api/meta")
 def api_meta():
+    """
+    返回筛选 chip 用的所有标签维度。
+
+    关键：patterns/weaves/styles/scenes/weight_ranges 全部从**预设词库**取，
+    不是从实际打标数据取。这样：
+    - 任何 chip 选项都是稳定的（用户可预期）
+    - 防止实际数据被污染后污染 chip
+    - 即使没有料打某个标签，chip 也会显示（用于引导）
+    """
     cfg = load_config()
     bootstrap_tagging(cfg)
     rows, meta = get_rows()
+
+    # 加载预设词库
+    import sys as _sys
+    _shared = str(ROOT.parent / "shared")
+    if _shared not in _sys.path:
+        _sys.path.insert(0, _shared)
+    try:
+        from tag_normalizer import load_vocabulary
+        vocab = load_vocabulary("fabric")
+    except Exception:
+        vocab = {}
+
+    # 实际数据中已用的值（仅供 reference，chip 仍按预设）
     kinds = sorted({r.get("物料种类", "") for r in rows if r.get("物料种类")})
     warehouses = sorted({r.get("仓库名称", "") for r in rows if r.get("仓库名称")})
-    patterns: set[str] = set()
-    weaves: set[str] = set()
+
+    # 从预设词库取（标准顺序）
+    patterns = list(vocab.get("花纹图案", {}).get("values", []))
+    weaves = list(vocab.get("织法组织", {}).get("values", []))
+    styles = list(vocab.get("风格", {}).get("values", []))
+    scenes = list(vocab.get("适用场景", {}).get("values", []))
+    weight_ranges = list(vocab.get("克重档位", {}).get("values", []))
+
+    # 实际克重档位覆盖（用于显示哪个有数据，不影响预设）
+    actual_weights: set[str] = set()
     for r in rows:
         t = r.get("视觉标签") or {}
-        if t.get("花纹图案"):
-            patterns.add(t["花纹图案"])
-        if t.get("织法组织"):
-            weaves.add(t["织法组织"])
+        w = t.get("克重档位") or r.get("克重档位", "")
+        if w:
+            actual_weights.add(w)
+    # 实际没用到的克重档位也保留在 chip 里（让用户知道有这个选项）
+
     return jsonify(
         {
             "config": cfg,
             "kinds": kinds,
             "warehouses": warehouses,
-            "patterns": sorted(patterns),
-            "weaves": sorted(weaves),
+            "patterns": patterns,
+            "weaves": weaves,
+            "styles": styles,
+            "scenes": scenes,
+            "weight_ranges": weight_ranges,
+            "actual_weights": sorted(actual_weights),  # 调试用
             "unit": cfg.get("stock_unit", "m"),
             "tag_jobs": get_pipeline(cfg).status(),
             **meta,

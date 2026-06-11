@@ -8,9 +8,9 @@
   "auto_tag_on_fetch": true,
   "tag_db": "fabric_tags.db",
   "vision": {
-    "provider": "xiaomi",
-    "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
-    "model": "mimo-v2.5",
+    "provider": "kimi",
+    "base_url": "https://api.moonshot.cn/v1",
+    "model": "kimi-k2.6",
     "request_interval_sec": 3,
     "max_enqueue_per_run": 20,
     "max_enqueue_per_fetch": 10,
